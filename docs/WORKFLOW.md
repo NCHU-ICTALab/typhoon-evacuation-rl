@@ -49,6 +49,8 @@ schedule unique count、cross-utility matrix 與每組偏好的 action trace。
 驗收：四個模型輸出到固定且被忽略的子目錄；每個 manifest 記錄 profile、權重、seed、
 steps、train/test dates；以至少三個 seed 執行正式比較。
 
+評估命令：`.venv/bin/python -m typhoon.evaluate_specialists --db data/ua1008l.sqlite --seed 42`。
+
 建議訊息：`feat: train fixed-preference specialist policies`
 
 ## 後續 Commit 5：Conditioned PPO 改造

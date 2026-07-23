@@ -93,3 +93,21 @@ def test_synthetic_risk_is_reproducible_and_not_a_gt_function():
         for i in range(30)
     }
     assert len(profiles) >= 3
+
+
+def test_specialist_evaluator_uses_paired_cases():
+    from typhoon.evaluate_specialists import evaluate_specialists
+
+    class FirstFeasibleModel:
+        def predict(self, observation, *, deterministic, action_masks):
+            feasible = np.flatnonzero(action_masks[:-1])
+            return (int(feasible[0]) if len(feasible) else len(action_masks) - 1), None
+
+    models = {profile: FirstFeasibleModel() for profile in PREFERENCE_PROFILES}
+    report = evaluate_specialists(models, [_scenario()])
+    assert report["paired_cases_per_profile"] == 12
+    assert report["cases_with_multiple_schedules"] == 0
+    assert all(
+        metrics["safety_violations"] == 0
+        for metrics in report["summary"].values()
+    )
