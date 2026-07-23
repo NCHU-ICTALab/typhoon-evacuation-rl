@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="高雄港颱風封港前撤離排序決策輔助展示">
+  <title>高雄港｜智慧封港決策輔助</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="回到頂部">
+      <span class="brand-mark" aria-hidden="true">KH</span>
+      <span><strong>高雄港</strong><small>智慧封港決策輔助 PoC</small></span>
+    </a>
+    <div class="header-status">
+      <span class="status-dot"></span>
+      <span id="engineStatus">正在連接 Python RL…</span>
+      <span class="divider"></span>
+      <span>本機 API · 資料不外傳</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">TYPHOON EVACUATION CONTROL</p>
+        <h1>在封港之前，<br><span>先決定誰該離開。</span></h1>
+        <p class="lead">依官方風力門檻鎖定安全截止時間，由 Python MaskablePPO 直接執行
+          艘數、GT 與風險偏好排程，再與固定規則基線比較。</p>
+        <div class="source-row">
+          <span id="scenarioSource">船舶：載入保留日期中…</span>
+          <span>風力／資源：訓練用合成</span>
+          <span id="modelSource">模型：載入中</span>
+        </div>
+      </div>
+      <div class="countdown-card">
+        <div class="storm-orbit" aria-hidden="true">
+          <span class="orbit orbit-a"></span>
+          <span class="orbit orbit-b"></span>
+          <span class="storm-eye"></span>
+        </div>
+        <p>預估停止出港</p>
+        <strong id="countdownValue">04:00</strong>
+        <span>平均風力達蒲福 7 級</span>
+        <div class="wind-scale">
+          <i style="--h:28%"></i><i style="--h:36%"></i><i style="--h:48%"></i>
+          <i style="--h:58%"></i><i style="--h:72%"></i><i style="--h:88%"></i>
+          <i class="danger" style="--h:100%"></i>
+        </div>
+        <div class="wind-label"><span>現在 4 級</span><span>管制 7 級</span></div>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <aside class="controls">
+        <div class="panel-title">
+          <div><p class="eyebrow">SCENARIO</p><h2>情境控制</h2></div>
+          <button class="icon-button" id="resetButton" title="恢復預設值" aria-label="恢復預設值">↺</button>
+        </div>
+
+        <label class="control">
+          <span><b>封港倒數</b><output id="closureOutput">4 小時</output></span>
+          <input id="closureInput" type="range" min="2" max="12" step="1" value="4">
+          <small>合成風力達 7 級的時間</small>
+        </label>
+
+        <label class="control">
+          <span><b>可用拖船</b><output id="tugOutput">8 艘</output></span>
+          <input id="tugInput" type="range" min="2" max="12" step="1" value="8">
+          <small>兩個港口共用容量</small>
+        </label>
+
+        <label class="control">
+          <span><b>撤離需求壓力</b><output id="pressureOutput">3.0×</output></span>
+          <input id="pressureInput" type="range" min="1" max="4" step="0.5" value="3">
+          <small>壓縮船舶整備時間軸</small>
+        </label>
+
+        <fieldset class="policy-picker method-picker">
+          <legend>決策方法</legend>
+          <button type="button" data-method="fcfs">FCFS<span>已整備船中，先整備者先派</span></button>
+          <button type="button" data-method="risk_aware">Risk-aware<span>安全餘裕最小、高風險者優先</span></button>
+          <button type="button" data-method="value_density">Value-density<span>平衡價值 ÷ 通航時間</span></button>
+          <button type="button" data-method="rl" class="active">Python RL<span>直接執行 MaskablePPO + action mask</span></button>
+        </fieldset>
+
+        <button class="run-button" id="runButton">
+          <span>執行 RL（自動跑 4 種偏好）</span><b>→</b>
+        </button>
+
+        <div class="constraint-note">
+          <strong>安全硬限制</strong>
+          <p>船舶必須在封港前完成過航；拖船與入口容量不得超用。排序策略無權放寬門檻。</p>
+        </div>
+      </aside>
+
+      <div class="dashboard">
+        <section class="alert-strip" id="alertStrip" aria-live="polite">
+          <span class="alert-icon">!</span>
+          <p><strong id="alertTitle">正在執行 Python RL</strong>
+            <span id="alertCopy">載入模型並建立 action mask…</span></p>
+          <span class="alert-time" id="alertTime">剛剛</span>
+        </section>
+
+        <section class="kpi-grid">
+          <article class="kpi-card primary">
+            <p>截止前撤離</p><strong id="evacuatedKpi">—</strong><span id="evacuatedDelta">—</span>
+          </article>
+          <article class="kpi-card">
+            <p>撤離總噸位</p><strong id="gtKpi">—</strong><span id="gtDelta">—</span>
+          </article>
+          <article class="kpi-card">
+            <p>風險點數</p><strong id="riskKpi">—</strong><span id="riskDelta">—</span>
+          </article>
+          <article class="kpi-card warning">
+            <p>未能撤離</p><strong id="remainingKpi">—</strong><span id="remainingGt">—</span>
+          </article>
+        </section>
+
+        <section class="comparison panel">
+          <div class="panel-title">
+            <div><p class="eyebrow">METHOD COMPARISON</p><h2>Python 基線與 RL 偏好候選</h2></div>
+            <span class="panel-hint">點選任一方法或候選，即可查看完整時程</span>
+          </div>
+          <div class="pareto-grid" id="paretoGrid"></div>
+          <p class="insight" id="insightText">正在等待 Python 後端回傳四種 RL 偏好的實際推論結果。</p>
+        </section>
+
+        <section class="method-panel panel">
+          <div class="panel-title">
+            <div><p class="eyebrow">HOW TO READ</p><h2>怎麼解讀效用與比較？</h2></div>
+            <span class="policy-badge neutral">研究指標，不是官方風險值</span>
+          </div>
+          <div class="method-grid">
+            <article>
+              <strong>風險加權效用</strong>
+              <p>把撤離艘數、GT、風險點各自除以情境總量後再加權。風險模式為：</p>
+              <code>U = 0.15×艘數比例 + 0.15×GT比例 + 0.70×風險點比例</code>
+              <small>U 約介於 0–1，只能在相同情境與相同權重下比較；越高代表越符合所選偏好。</small>
+            </article>
+            <article>
+              <strong>安全不是效用的一部分</strong>
+              <p>封港截止、拖船容量與入口衝突是硬限制，不能用較高 U 換取違規。畫面中的風險點仍是依 GT 分級的合成 proxy，不是港方正式優先序。</p>
+            </article>
+            <article>
+              <strong>必須做配對比較</strong>
+              <p>正式 RL 評估應做配對比較：<b>RL-risk ↔ Risk-aware</b>、<b>RL-count ↔ throughput</b>、<b>RL-GT ↔ GT-aware</b>。本頁先把規則基線與加權候選放在同一情境下檢視。</p>
+            </article>
+            <article>
+              <strong>這個前端的界線</strong>
+              <p>此頁透過 <code>/api/typhoon/schedule</code> 直接載入 <b>final.zip</b> 並執行 Python MaskablePPO；瀏覽器不再自行產生排程。正式成效仍應以多個保留日期的配對評估報告為準。</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="action-panel panel">
+          <div class="panel-title">
+            <div><p class="eyebrow">DISPATCH ACTION</p><h2>排程器每一步在做什麼？</h2></div>
+            <span class="policy-badge">Python env 實際 action trace</span>
+          </div>
+          <div class="action-definitions">
+            <article><span class="action-code">A0–A29</span><div><strong>派指定船舶出港</strong>
+              <p>選擇一艘已整備且能在封港前完成過航的船；拖船與入口會立即被占用。</p></div></article>
+            <article><span class="action-code wait">A30</span><div><strong>等待下一事件</strong>
+              <p>推進到船舶整備完成或資源釋放；用於保留容量給稍後到達的高價值船舶。</p></div></article>
+          </div>
+          <div class="action-log" id="actionLog"></div>
+        </section>
+
+        <section class="timeline-panel panel">
+          <div class="panel-title">
+            <div><p class="eyebrow">EVACUATION TIMELINE</p><h2>封港前撤離時程</h2></div>
+            <span class="policy-badge" id="policyBadge">平衡方案</span>
+          </div>
+          <div class="time-axis" id="timeAxis"></div>
+          <div class="timeline" id="timeline"></div>
+          <p class="timeline-note" id="timelineNote"></p>
+          <div class="timeline-legend">
+            <span><i class="risk-low"></i>一般</span>
+            <span><i class="risk-mid"></i>中風險</span>
+            <span><i class="risk-high"></i>高風險</span>
+            <span><i class="not-ready"></i>尚未整備</span>
+            <span><i class="closure"></i>停止出港</span>
+          </div>
+        </section>
+
+        <section class="queue-panel panel">
+          <div class="panel-title">
+            <div><p class="eyebrow">VESSEL QUEUE</p><h2>船舶處置清單</h2></div>
+            <div class="queue-filters" role="group" aria-label="篩選船舶">
+              <button class="active" data-filter="all">全部</button>
+              <button data-filter="evacuated">已撤離</button>
+              <button data-filter="remaining">未撤離</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>次序</th><th>船舶</th><th>入口</th><th>GT</th><th>拖船</th><th>預計時程</th><th>處置</th></tr></thead>
+              <tbody id="vesselTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p><strong>研究型 PoC</strong>｜結果只用於流程展示與模型訓練，不代表港方正式命令或真實颱風成效。</p>
+    <p>Kaohsiung Smart Port Decision Support · Python RL Demo</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
