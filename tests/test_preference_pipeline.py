@@ -111,3 +111,42 @@ def test_specialist_evaluator_uses_paired_cases():
         metrics["safety_violations"] == 0
         for metrics in report["summary"].values()
     )
+
+
+def test_phase1_profiles_receive_same_scenario_stream():
+    from typhoon.train_conditioned_v2 import PairedProfileTrainingEnv
+
+    count_env = PairedProfileTrainingEnv(
+        [_scenario()], preference=PREFERENCE_PROFILES["count"], base_seed=123
+    )
+    risk_env = PairedProfileTrainingEnv(
+        [_scenario()], preference=PREFERENCE_PROFILES["risk"], base_seed=123
+    )
+    count_observation, _ = count_env.reset()
+    risk_observation, _ = risk_env.reset()
+    assert np.allclose(count_observation[:-3], risk_observation[:-3])
+    assert np.allclose(count_observation[-3:], PREFERENCE_PROFILES["count"])
+    assert np.allclose(risk_observation[-3:], PREFERENCE_PROFILES["risk"])
+    assert count_env.closure_hour == risk_env.closure_hour
+    assert count_env.tug_capacity == risk_env.tug_capacity
+
+
+def test_preference_gating_changes_ship_representation():
+    import torch
+
+    from typhoon.policy import PreferenceGatedExtractor
+
+    env = TyphoonEvacuationEnv(_scenario(), randomize=False)
+    # The production extractor is configured for 30 vessels; use a matching
+    # synthetic observation space without requiring the historical database.
+    space = type(env.observation_space)(
+        low=-2.0, high=5.0, shape=(344,), dtype=np.float32
+    )
+    extractor = PreferenceGatedExtractor(space)
+    observations = torch.zeros((2, 344), dtype=torch.float32)
+    observations[:, :330] = 0.5
+    observations[0, -3:] = torch.tensor(PREFERENCE_PROFILES["count"])
+    observations[1, -3:] = torch.tensor(PREFERENCE_PROFILES["risk"])
+    features = extractor(observations)
+    assert features.shape == (2, 256)
+    assert not torch.allclose(features[0], features[1])

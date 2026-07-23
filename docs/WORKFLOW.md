@@ -53,10 +53,12 @@ steps、train/test dates；以至少三個 seed 執行正式比較。
 
 建議訊息：`feat: train fixed-preference specialist policies`
 
-## 後續 Commit 5：Conditioned PPO 改造
+## Commit 5：Conditioned PPO 改造（Phase 1 已完成）
 
-尚未在第一批直接實作。預定加入均衡偏好 rollout、獨立 preference encoder 或共享 trunk
-加多頭 policy/value，並以 specialist regret 決定是否接受。
+已加入四 profile 均衡 rollout、deterministic paired scenario stream、獨立 preference encoder
+與 FiLM vessel-feature gating。Seed 42 結果見 `PHASE1_RESULTS_SEED42.md`：行為分離明顯改善，
+但只有 count 達成 cross-utility 對角最佳，因此下一步不是直接擴多 seed，而是分解 objective
+critic 與 policy loss。
 
 ## 後續 Commit 6：真正 MORL
 

@@ -48,6 +48,9 @@ python -m venv .venv
 # 評估四個 specialist（相同 held-out cases）
 .venv/bin/python -m typhoon.evaluate_specialists --db data/ua1008l.sqlite --seed 42
 
+# Phase 1：四偏好均衡 rollout + preference gating
+.venv/bin/python -m typhoon.train_conditioned_v2 --db data/ua1008l.sqlite --steps-per-profile 100000 --seed 42
+
 # 前端與 Python API
 .venv/bin/python -m typhoon.api
 ~~~
