@@ -60,11 +60,11 @@ steps、train/test dates；以至少三個 seed 執行正式比較。
 但只有 count 達成 cross-utility 對角最佳，因此下一步不是直接擴多 seed，而是分解 objective
 critic 與 policy loss。
 
-## 後續 Commit 6：真正 MORL
+## Commit 6：Decomposed PPO（Phase 2 已完成）
 
-二選一：
+已加入 vector rollout、三頭 critic、逐目標 GAE、逐目標 PPO clipping、late scalarization 與
+gradient cosine diagnostics。Seed 42 結果見 `PHASE2_RESULTS_SEED42.md`：GT credit assignment
+明顯改善，但 cross-utility 仍只有 count 對角最佳。下一個最小實驗是 gradient conflict 分布
+與 shared actor 對照 preference heads；Envelope Q-learning 繼續保留為獨立 benchmark。
 
-- D3PO-lite：vector rollout、三頭 critic、逐目標 GAE／PPO loss、masked-logit diversity；
-- Envelope Q-learning：保留 vector Q-value，為 31 個離散動作整合 action mask。
-
-D3PO 目前仍是預印本，因此必須保留 Envelope Q-learning 或 specialist 作為成熟對照。
+建議訊息：`feat: add decomposed multi-objective PPO`

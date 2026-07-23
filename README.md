@@ -51,6 +51,9 @@ python -m venv .venv
 # Phase 1：四偏好均衡 rollout + preference gating
 .venv/bin/python -m typhoon.train_conditioned_v2 --db data/ua1008l.sqlite --steps-per-profile 100000 --seed 42
 
+# Phase 2：decomposed critic + per-objective GAE/PPO
+.venv/bin/python -m typhoon.train_decomposed_ppo --db data/ua1008l.sqlite --steps-per-profile 100000 --seed 42
+
 # 前端與 Python API
 .venv/bin/python -m typhoon.api
 ~~~
