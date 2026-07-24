@@ -1,0 +1,26 @@
+{
+  "available": true,
+  "model_family": "phase8-preference-scalar-critic-experts",
+  "algorithm": "custom_decomposed_ppo_preference_first_scalar_critic_fixed_profile",
+  "seed": 42,
+  "steps_per_expert": 100000,
+  "held_out_dates": 5,
+  "paired_cases_per_profile": 60,
+  "diagonal_best": {
+    "count": false,
+    "balanced": false,
+    "gt": true,
+    "risk": true
+  },
+  "gt_risk_gate": true,
+  "weighted_utility": {
+    "count": 0.4018,
+    "balanced": 0.3813,
+    "gt": 0.3669,
+    "risk": 0.4005
+  },
+  "safety_violations": 0,
+  "rejected_actions": 0,
+  "data_contract": "offline held-out public-source vessel snapshots; synthetic weather/resources/risk proxy",
+  "artifact_contract": "checkpoints and raw comparison reports are Git ignored"
+}

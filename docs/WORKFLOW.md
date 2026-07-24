@@ -145,6 +145,31 @@ router，再以小 learning rate joint fine-tune；評估需加入 centroid 間�
 
 建議訊息：`feat: align vector critic with preference utility`
 
+## Commit 13：Phase 8 expert inference v1（已完成）
+
+FastAPI 改為載入四個 Phase 8 fixed-profile checkpoints，依離散偏好 hard-route，並在相同
+情境執行四次真實 RL 推理。前端顯示 expert 來源、held-out GT/risk 2/2 gate、完整 action
+trace 與 Pareto candidates；模型缺少時維持 503，不做 heuristic fallback。端到端 smoke
+record 與 soft MoE 向下相容欄位見 `PHASE8_INFERENCE_V1.md`。
+
+下一階段可在不改 schedule/KPI response 的前提下，把 `fixed-profile-hard-selector` 替換為
+`soft-moe`，新增連續 `preference_weights` 與 `routing_weights`。
+
+建議訊息：`feat: serve Phase 8 preference experts`
+
+## Commit 14：Phase 9A continuous-preference Soft MoE（已完成）
+
+把 Phase 8 四個 experts 凍結並封裝進單一 checkpoint，以 Dirichlet 連續偏好與四個 centroid
+蒸餾 preference router；混合後再次套用 hard action mask。Seed 42 的 centroid routing 均超過
+99.98%，GT/risk gate 維持 2/2，安全違規為 0；count／balanced 仍非對角最佳，因此前端只以
+明確標示的實驗模式提供連續偏好，不取代 Phase 8 預設路徑。完整契約與結果見
+`PHASE9A_SOFT_MOE.md`。
+
+下一步是 Phase 9B frozen-expert router PPO；先只更新 router 與 critic，通過相同 held-out gate
+後才考慮小 learning rate joint fine-tuning。
+
+建議訊息：`feat: add experimental continuous-preference soft MoE`
+
 ## 整體 MORL 訓練完成後：30 艘容量與部署待辦
 
 目前實驗繼續固定 30 艘，以免在 MORL 演算法比較期間同時改變 observation、action space 與

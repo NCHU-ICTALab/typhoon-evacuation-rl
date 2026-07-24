@@ -1,0 +1,49 @@
+{
+  "available": true,
+  "phase": "9a_frozen_experts_distilled_router",
+  "seed": 42,
+  "paired_base_cases": 60,
+  "checkpoint_contract": "one checkpoint containing four frozen Phase 8 experts and one continuous-preference soft router",
+  "centroid_routing": {
+    "count": [0.999936, 0.000064, 0.0, 0.0],
+    "balanced": [0.000062, 0.999817, 0.000065, 0.000056],
+    "gt": [0.0, 0.00006, 0.99994, 0.0],
+    "risk": [0.0, 0.000066, 0.0, 0.999934]
+  },
+  "continuous_routing_samples": {
+    "count_gt_midpoint": {
+      "preference": [0.5, 0.5, 0.0],
+      "routing": [0.227621, 0.544762, 0.227617, 0.0]
+    },
+    "gt_risk_midpoint": {
+      "preference": [0.0, 0.5, 0.5],
+      "routing": [0.0, 0.548985, 0.2197, 0.231316]
+    },
+    "count_risk_midpoint": {
+      "preference": [0.5, 0.0, 0.5],
+      "routing": [0.232648, 0.535281, 0.0, 0.232071]
+    },
+    "custom_20_30_50": {
+      "preference": [0.2, 0.3, 0.5],
+      "routing": [0.0, 0.719629, 0.000012, 0.280359]
+    }
+  },
+  "diagonal_best": {
+    "count": false,
+    "balanced": false,
+    "gt": true,
+    "risk": true
+  },
+  "diagonal_best_count": 2,
+  "gt_risk_gate": true,
+  "safety_violations": 0,
+  "rejected_actions": 0,
+  "cases_with_preference_action_difference": 56,
+  "paired_cases_with_four_unique_action_traces": 50,
+  "limitations": [
+    "The router is distilled from preference centroids; it has not yet been optimized end-to-end with PPO.",
+    "Count and balanced preferences are not diagonal-best on the held-out cross-utility matrix.",
+    "Weather and resource conditions are synthetic; vessel snapshots are offline public-source data.",
+    "The fixed 30-vessel input contract remains in effect."
+  ]
+}

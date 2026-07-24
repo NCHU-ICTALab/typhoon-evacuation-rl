@@ -108,6 +108,21 @@ input[type=range]::-webkit-slider-thumb {
   appearance: none; width: 17px; height: 17px; border: 3px solid white; border-radius: 50%;
   background: var(--ocean); box-shadow: 0 0 0 1px var(--ocean), 0 2px 7px rgba(0,0,0,.18);
 }
+.continuous-panel {
+  margin-top: 22px; padding: 12px; border: 1px dashed #c8d6d9; border-radius: 10px;
+  background: #f8fafb; transition: .18s ease;
+}
+.continuous-panel.enabled { border-style: solid; border-color: #78c5c8; background: #effafa; }
+.continuous-toggle { display: flex; align-items: center; gap: 9px; cursor: pointer; }
+.continuous-toggle input { width: 16px; height: 16px; accent-color: var(--ocean); }
+.continuous-toggle span { display: flex; flex-direction: column; }
+.continuous-toggle b { font-size: 12px; }
+.continuous-toggle small, .continuous-weights > small { color: #71878f; font-size: 9px; }
+.continuous-weights { display: none; margin-top: 11px; padding-top: 2px; border-top: 1px solid #d8e8e9; }
+.continuous-panel.enabled .continuous-weights { display: block; }
+.control.compact { margin-top: 10px; }
+.control.compact input[type=range] { margin: 8px 0 2px; }
+.control.compact b, .control.compact output { font-size: 10px; }
 .policy-picker { margin: 24px 0 0; padding: 0; border: 0; }
 .policy-picker legend { margin-bottom: 8px; font-weight: 700; font-size: 13px; }
 .policy-picker button {
@@ -157,6 +172,14 @@ input[type=range]::-webkit-slider-thumb {
 .legend i, .timeline-legend i { display: inline-block; width: 9px; height: 9px; margin-right: 5px; border-radius: 2px; }
 .insight { margin: 16px 0 0; padding: 11px 13px; background: #f3f8f8; color: #526b76; border-radius: 8px; font-size: 11px; }
 .panel-hint { color: var(--muted); font-size: 10px; }
+.validation-record {
+  display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-top: 14px;
+  padding: 10px 12px; border: 1px solid #b9e3e0; border-radius: 9px; background: #effafa;
+}
+.validation-record strong { color: #006f81; font-size: 11px; }
+.validation-record span { color: #56727a; font-size: 10px; }
+.validation-record.unavailable { border-color: #ead3bb; background: #fff7ef; }
+.validation-record.unavailable strong { color: #9c571e; }
 .pareto-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
   gap: 10px; margin-top: 18px;

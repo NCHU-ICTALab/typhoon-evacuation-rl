@@ -81,8 +81,11 @@ for profile in count balanced gt risk; do
 done
 .venv/bin/python -m typhoon.evaluate_decomposed_specialists --db data/ua1008l.sqlite --seed 42 --model-root typhoon/models/decomposed_ppo_preference_first_scalar_critic_fixed_profiles --algorithm custom_decomposed_ppo_preference_first_scalar_critic_fixed_profile
 
-# 前端與 Python API
-.venv/bin/python -m typhoon.api
+# Phase 8 前端與 Python API（SQLite 保持原地讀取）
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 TYPHOON_DB_PATH=/path/to/ua1008l.sqlite .venv/bin/python -m typhoon.api
+
+# Phase 9A：四個 frozen experts + 單一連續偏好 Soft MoE checkpoint
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 .venv/bin/python -m typhoon.train_soft_moe --db data/ua1008l.sqlite --seed 42
 ~~~
 
 完整執行順序與 commit 建議見 [docs/WORKFLOW.md](docs/WORKFLOW.md)。PCGrad 技術契約與
@@ -99,4 +102,7 @@ seed 42 結果分別見 [docs/PHASE3_PCGRAD.md](docs/PHASE3_PCGRAD.md) 與
 [docs/PHASE7_RESULTS_SEED42.md](docs/PHASE7_RESULTS_SEED42.md)。Preference-scalarized critic 的
 技術契約與結果見
 [docs/PHASE8_PREFERENCE_SCALAR_CRITIC.md](docs/PHASE8_PREFERENCE_SCALAR_CRITIC.md) 與
-[docs/PHASE8_RESULTS_SEED42.md](docs/PHASE8_RESULTS_SEED42.md)。
+[docs/PHASE8_RESULTS_SEED42.md](docs/PHASE8_RESULTS_SEED42.md)。第一版前端/API 推理整合與
+soft MoE 相容介面見 [docs/PHASE8_INFERENCE_V1.md](docs/PHASE8_INFERENCE_V1.md)。
+Phase 9A 的單一 checkpoint、router 蒸餾、held-out 結果與 API smoke record 見
+[docs/PHASE9A_SOFT_MOE.md](docs/PHASE9A_SOFT_MOE.md)。

@@ -2,9 +2,10 @@
 
 ## 一、目前能下的結論
 
-本 PoC 已建立可執行的颱風封港前撤離環境、硬式安全遮罩、偏好條件式
-MaskablePPO、規則基線與離線 Pareto 前端。模型能在未參與訓練的歷史日期上完成排程，
-且所有受測策略的安全違規皆為 0。
+本 PoC 已建立颱風封港前撤離環境、硬式安全遮罩、Phase 8 四個 fixed-profile experts、
+Phase 9A 單一 Soft MoE checkpoint、規則基線與離線 Pareto 前端。API 預設依四種離散偏好
+選擇 Phase 8 expert；實驗模式可送入任意三維非負偏好，由同一個 Phase 9A checkpoint
+完成推論。模型能在未參與訓練的歷史日期上完成排程，所有受測策略的安全違規皆為 0。
 
 目前 **不能** 宣稱 RL 全面優於規則方法。100,000-step 模型整體效用略高於 FCFS，
 但仍低於直接依同一效用設計的 value-density；在風險偏好下，Risk-aware 的撤離 GT、
@@ -48,9 +49,9 @@ U_{risk}=0.15C+0.15G+0.70R
 
 把四種偏好的結果混成單一平均，只能看整體泛化，不能用來宣稱某一專門目標勝負。
 
-## 四、100,000-step 保留日期結果
+## 四、早期 100,000-step conditioned 模型結果
 
-訓練使用 24 個歷史日期；最後 5 個日期完全保留。評估涵蓋 4 種偏好、3 個封港時間、
+以下保留為 Phase 8 前的歷史基線。訓練使用 24 個歷史日期；最後 5 個日期完全保留。評估涵蓋 4 種偏好、3 個封港時間、
 2 種拖船容量與 2 種需求壓力，共 240 回合／策略，且每一偏好有 60 回合。
 
 ### 風險偏好配對
@@ -77,22 +78,44 @@ U_{risk}=0.15C+0.15G+0.70R
 正式 checkpoint，不是收斂證明；後續應加入多訓練 seed、學習曲線、偏好分離檢查與
 最佳化上限，才能判斷增加訓練量是否真的有效。
 
-## 五、前端與模型的界線
+## 五、Phase 8 expert gate
 
-前端不自行模擬或偽造 RL。一次情境重算會呼叫 Python API，由
-`typhoon/models/final.zip` 直接執行四種偏好的 MaskablePPO，並以相同情境執行 FCFS、
-Risk-aware 與 value-density。若模型缺少或介面不相容，API 回傳 503，不會把 heuristic
-靜默標示為 RL。
+Phase 8 保留 preference-first scalar actor surrogate，並以 preference-scalarized critic MSE
+加 0.1 倍 vector auxiliary MSE 訓練。Seed 42 held-out 結果如下：
+
+| 偏好 | Phase 8 utility | 舊 SB3 specialist | Delta |
+|---|---:|---:|---:|
+| 艘數 | 0.4018 | 0.4031 | -0.0013 |
+| 平衡 | 0.3813 | 0.3895 | -0.0082 |
+| GT | 0.3669 | 0.3683 | -0.0014 |
+| 風險 | 0.4005 | 0.4048 | -0.0043 |
+
+GT、risk 均達成 cross-utility 對角最佳，通過 soft MoE 前的 2/2 expert gate。count、balanced
+未對角不構成失敗，因為舊 SB3 specialist 亦如此，且 risk expert 在目前資料同時具有較高
+count 與 risk completion。
+
+## 六、前端與模型的界線
+
+前端不自行模擬或偽造 RL。一次情境重算會呼叫 Python API，載入 Phase 8 四個
+`final.pt`，依離散偏好 hard-route 至對應 expert，並以相同情境執行 FCFS、Risk-aware 與
+value-density。若任一模型缺少或介面不相容，API 回傳 503，不會把 heuristic 靜默標示為
+RL。
 
 前端負責顯示完整 dispatch／wait 動作軌跡、時程、基線與 Pareto 結果。若多個 RL 偏好
 產生完全相同的動作與 KPI，介面會明確標示結果重疊，而不製造不存在的 Pareto 差異。
 
-## 六、後續工作
+Phase 9A 另提供預設關閉的連續偏好控制。它是四個 frozen experts 加一個 soft router 的單一
+checkpoint，並非已完成 end-to-end joint training 的單一共享策略。GT/risk gate 維持 2/2，
+但 count／balanced 仍非對角最佳，因此目前只能標示為實驗結果，不能取代 Phase 8。
+
+## 七、後續工作
 
 - 以多個訓練 seed 確認偏好反應與結果穩定性；
 - 加入 GT-aware 基線及最佳化上限；
 - 將合成風險 proxy 替換為危險品、吃水、主機狀態等正式欄位；
-- 讓 RL 針對同一情境輸出多組偏好解，再比較 RL 與規則方法的 Pareto 集合。
+- 以 frozen Phase 8 experts 對 Phase 9A router 做 PPO，再視 gate 決定是否 joint fine-tune；
+- 在 preference simplex grid 評估平滑度、Pareto coverage 與 regret；
+- 讓單一 Soft MoE 對同一情境輸出多組偏好解，再比較 RL 與規則方法的 Pareto 集合。
 
 目前程式盤點、偏好未分離的原因、MORL 技術選型與分階段驗收方式，見
 [typhoon_preference_learning_plan.md](typhoon_preference_learning_plan.md)。

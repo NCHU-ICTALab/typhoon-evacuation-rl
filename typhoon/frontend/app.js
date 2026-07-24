@@ -11,7 +11,8 @@
     fcfs: { label: "FCFS", detail: "先整備先派" },
     risk_aware: { label: "Risk-aware", detail: "安全餘裕優先" },
     value_density: { label: "Value-density", detail: "偏好價值／通航時間" },
-    rl: { label: "Python RL", detail: "MaskablePPO 實際推論" }
+    rl: { label: "Phase 8 RL", detail: "偏好 hard-route 至對應 expert" },
+    continuous: { label: "Phase 9A Soft MoE", detail: "單一 checkpoint · 連續偏好" }
   };
   var BASELINE_ORDER = ["fcfs", "risk_aware", "value_density"];
   var PROFILE_ORDER = ["count", "balanced", "gt", "risk"];
@@ -22,6 +23,8 @@
     pressure: 3,
     method: "rl",
     policy: "balanced",
+    continuous: false,
+    preferenceWeights: [33, 34, 33],
     filter: "all",
     payload: null,
     result: null,
@@ -58,7 +61,13 @@
   function selectedResult() {
     if (!state.payload) return null;
     if (state.method === "rl") return state.payload.rl_results[state.policy];
+    if (state.method === "continuous") return state.payload.continuous_result;
     return state.payload.baselines[state.method];
+  }
+
+  function continuousWeights() {
+    var total = state.preferenceWeights.reduce(function (sum, value) { return sum + value; }, 0);
+    return state.preferenceWeights.map(function (value) { return value / total; });
   }
 
   function weightText(preference) {
@@ -96,10 +105,26 @@
       var repeated = outcomeCounts[outcomeKey(result)] > 1;
       var tag = repeated ? "RL 結果重合" : (paretoOutcomes.has(outcomeKey(result)) ? "RL 非支配" : "RL 候選");
       return resultCard(result, result.preference.label, 'data-rl-policy="' + key + '"', tag,
-        "艘數 / GT / 風險權重：" + weightText(result.preference),
+        "Phase 8 " + key + " expert · 權重：" + weightText(result.preference),
         state.method === "rl" && state.policy === key);
     }).join("");
-    byId("paretoGrid").innerHTML = baselines + rlCards;
+    var continuousCard = "";
+    if (state.continuous && state.payload.continuous_result) {
+      var continuous = state.payload.continuous_result;
+      var routing = continuous.routing_weights_initial.map(function (value) {
+        return Math.round(value * 100);
+      }).join(" / ");
+      continuousCard = resultCard(
+        continuous,
+        "自訂連續偏好",
+        'data-continuous-card="true"',
+        "Phase 9A 實驗",
+        "單一 Soft MoE · 偏好 " + weightText(continuous.preference) +
+          " · router C/B/G/R " + routing,
+        state.method === "continuous"
+      );
+    }
+    byId("paretoGrid").innerHTML = baselines + rlCards + continuousCard;
 
     document.querySelectorAll("[data-method-card]").forEach(function (button) {
       button.addEventListener("click", function () {
@@ -111,6 +136,12 @@
       button.addEventListener("click", function () {
         state.method = "rl";
         state.policy = button.dataset.rlPolicy;
+        renderPayload();
+      });
+    });
+    document.querySelectorAll("[data-continuous-card]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        state.method = "continuous";
         renderPayload();
       });
     });
@@ -132,9 +163,9 @@
   function renderInsight(result) {
     var rlResults = PROFILE_ORDER.map(function (key) { return state.payload.rl_results[key]; });
     var uniqueOutcomes = new Set(rlResults.map(outcomeKey)).size;
-    var label = state.method === "rl" ? PROFILES[state.policy].label + " Python RL" : METHODS[state.method].label;
+    var label = state.method === "rl" ? PROFILES[state.policy].label + " Phase 8 expert" : METHODS[state.method].label;
     var base = state.payload.baselines.fcfs.kpi;
-    var text = "Python 後端已執行 3 個規則基線與 4 次 MaskablePPO 推論；";
+    var text = "Python 後端已執行 3 個規則基線與 4 個 Phase 8 expert 推論；";
     if (uniqueOutcomes === 1) {
       text += "四種 RL 偏好得到同一排程，代表此情境下模型尚未呈現偏好條件化分化。";
     } else {
@@ -145,6 +176,9 @@
       delta(result.kpi.count, base.count, " 艘、") +
       delta(result.kpi.gt, base.gt, " GT、") +
       delta(result.kpi.risk, base.risk, " 風險點。");
+    if (state.method === "continuous") {
+      text += " 此結果來自一個 Phase 9A checkpoint 的機率混合；目前僅 GT/risk gate 通過，尚未取代 Phase 8。";
+    }
     byId("insightText").textContent = text;
     byId("alertCopy").textContent = text;
   }
@@ -253,6 +287,15 @@
     document.querySelectorAll("[data-method]").forEach(function (button) {
       button.classList.toggle("active", button.dataset.method === state.method);
     });
+    var weights = continuousWeights();
+    ["count", "gt", "risk"].forEach(function (key, index) {
+      byId(key + "WeightOutput").textContent = Math.round(weights[index] * 100) + "%";
+      updateRange(key + "WeightInput", key + "WeightOutput", function () {
+        return Math.round(weights[index] * 100) + "%";
+      });
+    });
+    byId("continuousPanel").classList.toggle("enabled", state.continuous);
+    byId("continuousMode").checked = state.continuous;
   }
 
   function renderPayload() {
@@ -265,13 +308,31 @@
     renderActionLog(result);
     renderTimeline(result);
     renderTable(result);
-    var label = state.method === "rl" ? PROFILES[state.policy].label + " · Python RL" : METHODS[state.method].label;
+    var label = state.method === "rl" ? PROFILES[state.policy].label + " · Phase 8 expert" : METHODS[state.method].label;
     byId("policyBadge").textContent = label;
     byId("alertTitle").textContent = label + " 已由 Python 完成";
-    byId("engineStatus").textContent = "Python RL 已連線";
+    byId("engineStatus").textContent = state.payload.continuous_result ?
+      "Phase 8 + Phase 9A Soft MoE 已連線" : "Phase 8 RL experts 已連線";
     byId("scenarioSource").textContent = "船舶：公開資料保留日 " + state.payload.scenario.date;
-    byId("modelSource").textContent = "模型：" + state.payload.model.file + " · " +
-      fmt.format(state.payload.model.trained_steps) + " steps";
+    var usingSoft = state.method === "continuous";
+    byId("modelSource").textContent = "模型：" + (usingSoft ?
+      state.payload.model.soft_moe.display_name : state.payload.model.display_name) +
+      (usingSoft ? " · frozen experts" : " · " +
+        fmt.format(state.payload.model.trained_steps_per_expert) + " steps/expert");
+    var validation = usingSoft ? state.payload.model.soft_moe.validation : state.payload.model.validation;
+    byId("validationTitle").textContent = usingSoft ?
+      "Phase 9A held-out 紀錄（實驗）" : "Phase 8 held-out 紀錄";
+    var validationRecord = byId("validationRecord");
+    validationRecord.classList.toggle("unavailable", !validation.available);
+    if (validation.available) {
+      byId("validationSummary").textContent =
+        "GT/risk gate " + (validation.gt_risk_gate ? "2/2 通過" : "未通過") +
+        " · " + (validation.paired_cases_per_profile || validation.paired_base_cases) + " cases/profile" +
+        " · safety " + validation.safety_violations +
+        " · seed " + validation.seed;
+    } else {
+      byId("validationSummary").textContent = "本機尚未找到對應 comparison report";
+    }
     byId("alertTime").textContent = new Date().toLocaleTimeString("zh-TW", {
       hour: "2-digit", minute: "2-digit"
     });
@@ -282,9 +343,9 @@
     byId("runButton").classList.toggle("running", busy);
     byId("runButton").disabled = busy;
     if (busy) {
-      byId("engineStatus").textContent = "Python RL 執行中…";
-      byId("alertTitle").textContent = "正在執行 MaskablePPO";
-      byId("alertCopy").textContent = "Python 正在建立情境、套用 action mask 並執行四種偏好。";
+      byId("engineStatus").textContent = state.continuous ? "Soft MoE 與 experts 執行中…" : "Phase 8 experts 執行中…";
+      byId("alertTitle").textContent = state.continuous ? "正在執行連續偏好 Soft MoE" : "正在執行 Phase 8 experts";
+      byId("alertCopy").textContent = "Python 正在建立情境、套用 action mask 並執行實際模型推論。";
     }
   }
 
@@ -299,18 +360,20 @@
           closure_hour: state.closure,
           tug_capacity: state.tugs,
           demand_compression: state.pressure,
-          preference: "balanced"
+          preference: state.policy,
+          preference_weights: state.continuous ? continuousWeights() : null
         })
       });
       var payload = await response.json();
       if (!response.ok) throw new Error(payload.detail || ("HTTP " + response.status));
       if (serial !== state.requestSerial) return;
       state.payload = payload;
+      if (state.continuous && payload.continuous_result) state.method = "continuous";
       renderPayload();
     } catch (error) {
       if (serial !== state.requestSerial) return;
-      byId("engineStatus").textContent = "Python RL 未連線";
-      byId("alertTitle").textContent = "無法執行 Python RL";
+      byId("engineStatus").textContent = "RL 模型未連線";
+      byId("alertTitle").textContent = "無法執行 RL 模型";
       byId("alertCopy").textContent = error.message + "；請用 python -m typhoon.api 啟動本頁。";
     } finally {
       if (serial === state.requestSerial) setBusy(false);
@@ -324,6 +387,17 @@
       state.pressure = +byId("pressureInput").value;
       syncControls();
     });
+  });
+  ["count", "gt", "risk"].forEach(function (key, index) {
+    byId(key + "WeightInput").addEventListener("input", function () {
+      state.preferenceWeights[index] = +byId(key + "WeightInput").value;
+      syncControls();
+    });
+  });
+  byId("continuousMode").addEventListener("change", function () {
+    state.continuous = byId("continuousMode").checked;
+    if (!state.continuous && state.method === "continuous") state.method = "rl";
+    syncControls();
   });
   document.querySelectorAll("[data-method]").forEach(function (button) {
     button.addEventListener("click", function () {
@@ -347,6 +421,11 @@
     state.closure = 4;
     state.tugs = 8;
     state.pressure = 3;
+    state.continuous = false;
+    state.preferenceWeights = [33, 34, 33];
+    byId("countWeightInput").value = 33;
+    byId("gtWeightInput").value = 34;
+    byId("riskWeightInput").value = 33;
     state.method = "rl";
     state.policy = "balanced";
     syncControls();

@@ -27,7 +27,12 @@ dev = [
 packages = ["typhoon"]
 
 [tool.setuptools.package-data]
-typhoon = ["frontend/*.html", "frontend/*.css", "frontend/*.js"]
+typhoon = [
+  "frontend/*.html",
+  "frontend/*.css",
+  "frontend/*.js",
+  "model_cards/*.json",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
