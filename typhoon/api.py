@@ -1,4 +1,4 @@
-"""FastAPI service for Phase 8 experts and experimental Phase 9A Soft MoE."""
+"""FastAPI service for Phase 8 experts and experimental Phase 9B Soft MoE."""
 
 from __future__ import annotations
 
@@ -39,9 +39,9 @@ MANIFEST_PATHS = {
 }
 COMPARISON_PATH = MODEL_ROOT / "comparison-seed-42.json"
 MODEL_CARD_PATH = ROOT / "model_cards" / "phase8_seed42.json"
-SOFT_MOE_PATH = ROOT / "models" / "soft_moe_router_distilled" / "seed-42" / "final.pt"
+SOFT_MOE_PATH = ROOT / "models" / "soft_moe_router_ppo" / "seed-42" / "final.pt"
 SOFT_MOE_COMPARISON_PATH = SOFT_MOE_PATH.parent / "comparison.json"
-SOFT_MOE_CARD_PATH = ROOT / "model_cards" / "phase9a_seed42.json"
+SOFT_MOE_CARD_PATH = ROOT / "model_cards" / "phase9b_seed42.json"
 DB_PATH = Path(os.environ.get("TYPHOON_DB_PATH", DEFAULT_DB))
 _MODEL_LOCK = threading.Lock()
 
@@ -129,7 +129,7 @@ def get_models() -> dict[str, object]:
 @lru_cache(maxsize=1)
 def get_soft_moe():
     if not SOFT_MOE_PATH.exists():
-        raise FileNotFoundError(f"Phase 9A Soft MoE checkpoint missing: {SOFT_MOE_PATH}")
+        raise FileNotFoundError(f"Phase 9B Soft MoE checkpoint missing: {SOFT_MOE_PATH}")
     from .soft_moe import SoftMoEActorCritic
 
     model = SoftMoEActorCritic.load(SOFT_MOE_PATH)
@@ -185,13 +185,19 @@ def get_soft_moe_validation_record() -> dict:
     return {
         "available": True,
         "seed": int(report.get("seed", 42)),
-        "phase": report.get("phase", "9a_frozen_experts_distilled_router"),
+        "phase": report.get("phase", "9b_frozen_experts_router_ppo"),
         "diagonal_best": report.get("diagonal_best", {}),
         "diagonal_best_count": int(report.get("diagonal_best_count", 0)),
         "gt_risk_gate": bool(report.get("gt_risk_gate", False)),
+        "accepted_for_frontend": bool(
+            report.get("accepted_for_frontend", False)
+        ),
         "safety_violations": int(report.get("safety_violations", 0)),
         "paired_base_cases": int(report.get("paired_base_cases", 60)),
-        "centroid_routing": report.get("centroid_routing", {}),
+        "centroid_routing": report.get(
+            "routing_after", report.get("centroid_routing", {})
+        ),
+        "continuous_grid": report.get("continuous_grid", {}),
     }
 
 
@@ -413,7 +419,7 @@ def calculate(
         if req.preference_weights is not None:
             if soft_model is None:
                 raise ValueError(
-                    "Phase 9A Soft MoE model is required for continuous preference"
+                    "Phase 9B Soft MoE model is required for continuous preference"
                 )
             continuous_result = _run_policy(
                 scenario=scenario,
@@ -436,7 +442,7 @@ def calculate(
     first_model = models["balanced"]
     return {
         "engine": (
-            "python-phase8-experts+phase9a-soft-moe"
+            "python-phase8-experts+phase9b-soft-moe"
             if continuous_result is not None
             else "python-decomposed-ppo-phase8-experts"
         ),
@@ -455,10 +461,11 @@ def calculate(
             "validation": get_validation_record(),
             "soft_moe": {
                 "available": SOFT_MOE_PATH.exists(),
-                "family": "phase9a-frozen-expert-soft-moe",
-                "display_name": "Phase 9A · 單一 Soft MoE（實驗性）",
+                "family": "phase9b-frozen-expert-router-ppo",
+                "display_name": "Phase 9B · RL-trained Soft MoE（實驗性）",
                 "routing": "continuous-preference-soft-router",
                 "file": str(SOFT_MOE_PATH.relative_to(ROOT)),
+                "rl_transitions": 100_000,
                 "validation": get_soft_moe_validation_record(),
             },
         },

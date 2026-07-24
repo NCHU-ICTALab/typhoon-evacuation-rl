@@ -3,8 +3,8 @@
 ## 一、目前能下的結論
 
 本 PoC 已建立颱風封港前撤離環境、硬式安全遮罩、Phase 8 四個 fixed-profile experts、
-Phase 9A 單一 Soft MoE checkpoint、規則基線與離線 Pareto 前端。API 預設依四種離散偏好
-選擇 Phase 8 expert；實驗模式可送入任意三維非負偏好，由同一個 Phase 9A checkpoint
+Phase 9B 單一 Soft MoE checkpoint、規則基線與離線 Pareto 前端。API 預設依四種離散偏好
+選擇 Phase 8 expert；實驗模式可送入任意三維非負偏好，由同一個 Phase 9B checkpoint
 完成推論。模型能在未參與訓練的歷史日期上完成排程，所有受測策略的安全違規皆為 0。
 
 目前 **不能** 宣稱 RL 全面優於規則方法。100,000-step 模型整體效用略高於 FCFS，
@@ -104,17 +104,18 @@ RL。
 前端負責顯示完整 dispatch／wait 動作軌跡、時程、基線與 Pareto 結果。若多個 RL 偏好
 產生完全相同的動作與 KPI，介面會明確標示結果重疊，而不製造不存在的 Pareto 差異。
 
-Phase 9A 另提供預設關閉的連續偏好控制。它是四個 frozen experts 加一個 soft router 的單一
-checkpoint，並非已完成 end-to-end joint training 的單一共享策略。GT/risk gate 維持 2/2，
-但 count／balanced 仍非對角最佳，因此目前只能標示為實驗結果，不能取代 Phase 8。
+Phase 9B 另提供預設關閉的連續偏好控制。它是四個 frozen experts、PPO-trained soft router
+與向量 critic 的單一 checkpoint，並非已完成 joint fine-tuning 的單一共享策略。GT/risk gate
+維持 2/2；15 點 grid 平均 utility delta 為 +0.001626，安全為 0，但 count／balanced 仍非
+對角最佳且目前只有單 seed，因此只能標示為實驗結果，不能取代 Phase 8。
 
 ## 七、後續工作
 
 - 以多個訓練 seed 確認偏好反應與結果穩定性；
 - 加入 GT-aware 基線及最佳化上限；
 - 將合成風險 proxy 替換為危險品、吃水、主機狀態等正式欄位；
-- 以 frozen Phase 8 experts 對 Phase 9A router 做 PPO，再視 gate 決定是否 joint fine-tune；
-- 在 preference simplex grid 評估平滑度、Pareto coverage 與 regret；
+- 重跑 Phase 9B seeds 43、44，並以 0.1 preference grid 加入 bootstrap CI 與 regret；
+- 多 seed 通過後才延長 steps 或以小 learning rate joint fine-tune；
 - 讓單一 Soft MoE 對同一情境輸出多組偏好解，再比較 RL 與規則方法的 Pareto 集合。
 
 目前程式盤點、偏好未分離的原因、MORL 技術選型與分階段驗收方式，見

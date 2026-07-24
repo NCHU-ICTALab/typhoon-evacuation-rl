@@ -12,7 +12,7 @@
     risk_aware: { label: "Risk-aware", detail: "安全餘裕優先" },
     value_density: { label: "Value-density", detail: "偏好價值／通航時間" },
     rl: { label: "Phase 8 RL", detail: "偏好 hard-route 至對應 expert" },
-    continuous: { label: "Phase 9A Soft MoE", detail: "單一 checkpoint · 連續偏好" }
+    continuous: { label: "Phase 9B Soft MoE", detail: "RL-trained router · 連續偏好" }
   };
   var BASELINE_ORDER = ["fcfs", "risk_aware", "value_density"];
   var PROFILE_ORDER = ["count", "balanced", "gt", "risk"];
@@ -118,8 +118,8 @@
         continuous,
         "自訂連續偏好",
         'data-continuous-card="true"',
-        "Phase 9A 實驗",
-        "單一 Soft MoE · 偏好 " + weightText(continuous.preference) +
+        "Phase 9B 實驗",
+        "RL-trained Soft MoE · 偏好 " + weightText(continuous.preference) +
           " · router C/B/G/R " + routing,
         state.method === "continuous"
       );
@@ -177,7 +177,7 @@
       delta(result.kpi.gt, base.gt, " GT、") +
       delta(result.kpi.risk, base.risk, " 風險點。");
     if (state.method === "continuous") {
-      text += " 此結果來自一個 Phase 9A checkpoint 的機率混合；目前僅 GT/risk gate 通過，尚未取代 Phase 8。";
+      text += " 此結果來自 Phase 9B router PPO checkpoint；連續 grid gate 已通過，但仍是單 seed pilot，尚未取代 Phase 8。";
     }
     byId("insightText").textContent = text;
     byId("alertCopy").textContent = text;
@@ -312,7 +312,7 @@
     byId("policyBadge").textContent = label;
     byId("alertTitle").textContent = label + " 已由 Python 完成";
     byId("engineStatus").textContent = state.payload.continuous_result ?
-      "Phase 8 + Phase 9A Soft MoE 已連線" : "Phase 8 RL experts 已連線";
+      "Phase 8 + Phase 9B Soft MoE 已連線" : "Phase 8 RL experts 已連線";
     byId("scenarioSource").textContent = "船舶：公開資料保留日 " + state.payload.scenario.date;
     var usingSoft = state.method === "continuous";
     byId("modelSource").textContent = "模型：" + (usingSoft ?
@@ -321,13 +321,16 @@
         fmt.format(state.payload.model.trained_steps_per_expert) + " steps/expert");
     var validation = usingSoft ? state.payload.model.soft_moe.validation : state.payload.model.validation;
     byId("validationTitle").textContent = usingSoft ?
-      "Phase 9A held-out 紀錄（實驗）" : "Phase 8 held-out 紀錄";
+      "Phase 9B held-out + grid 紀錄（實驗）" : "Phase 8 held-out 紀錄";
     var validationRecord = byId("validationRecord");
     validationRecord.classList.toggle("unavailable", !validation.available);
     if (validation.available) {
+      var grid = validation.continuous_grid || {};
       byId("validationSummary").textContent =
         "GT/risk gate " + (validation.gt_risk_gate ? "2/2 通過" : "未通過") +
         " · " + (validation.paired_cases_per_profile || validation.paired_base_cases) + " cases/profile" +
+        (usingSoft && grid.grid_points ? " · grid " + grid.points_improved + "/" +
+          grid.points_tied + "/" + grid.points_worse + " 改善/持平/退步" : "") +
         " · safety " + validation.safety_violations +
         " · seed " + validation.seed;
     } else {

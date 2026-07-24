@@ -110,7 +110,7 @@ def test_calculate_runs_one_checkpoint_with_normalized_continuous_preference():
 
     continuous = result["continuous_result"]
     assert soft_model.calls > 0
-    assert result["engine"] == "python-phase8-experts+phase9a-soft-moe"
+    assert result["engine"] == "python-phase8-experts+phase9b-soft-moe"
     assert result["selected_weights"] == [0.2, 0.3, 0.5]
     assert continuous["preference"]["key"] == "continuous"
     assert continuous["preference"]["weights"] == [0.2, 0.3, 0.5]
@@ -165,7 +165,7 @@ def test_frontend_identifies_phase8_expert_routing():
     assert "Phase 8 Python RL experts" in response.text
     assert "Phase 8 held-out 紀錄" in response.text
     assert "實驗性連續偏好" in response.text
-    assert "Phase 9A Soft MoE" in response.text
+    assert "Phase 9B RL-trained Soft MoE" in response.text
 
 
 def test_validation_record_falls_back_to_tracked_model_card(
@@ -193,3 +193,39 @@ def test_validation_record_falls_back_to_tracked_model_card(
         assert record["safety_violations"] == 0
     finally:
         typhoon_api.get_validation_record.cache_clear()
+
+
+def test_soft_moe_validation_falls_back_to_phase9b_model_card(
+    monkeypatch, tmp_path
+):
+    comparison = tmp_path / "missing-phase9b-comparison.json"
+    model_card = tmp_path / "phase9b-model-card.json"
+    model_card.write_text(
+        json.dumps(
+            {
+                "available": True,
+                "phase": "9b_frozen_experts_router_ppo",
+                "seed": 42,
+                "gt_risk_gate": True,
+                "accepted_for_frontend": True,
+                "safety_violations": 0,
+                "continuous_grid": {
+                    "grid_points": 15,
+                    "continuous_grid_gate": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        typhoon_api, "SOFT_MOE_COMPARISON_PATH", comparison
+    )
+    monkeypatch.setattr(typhoon_api, "SOFT_MOE_CARD_PATH", model_card)
+    typhoon_api.get_soft_moe_validation_record.cache_clear()
+    try:
+        record = typhoon_api.get_soft_moe_validation_record()
+        assert record["phase"] == "9b_frozen_experts_router_ppo"
+        assert record["accepted_for_frontend"] is True
+        assert record["continuous_grid"]["continuous_grid_gate"] is True
+    finally:
+        typhoon_api.get_soft_moe_validation_record.cache_clear()

@@ -1,0 +1,52 @@
+{
+  "available": true,
+  "phase": "9b_frozen_experts_router_ppo",
+  "seed": 42,
+  "steps_per_profile": 25000,
+  "total_rl_transitions": 100000,
+  "paired_base_cases": 60,
+  "experts_frozen": true,
+  "trainable": ["preference_router", "state_router", "vector_critic"],
+  "diagonal_best": {
+    "count": false,
+    "balanced": false,
+    "gt": true,
+    "risk": true
+  },
+  "diagonal_best_count": 2,
+  "gt_risk_gate": true,
+  "performance_floor_vs_phase9a": true,
+  "accepted_for_frontend": true,
+  "safety_violations": 0,
+  "rejected_actions": 0,
+  "utility_delta_vs_phase9a_at_centroids": {
+    "count": 0.0,
+    "balanced": 0.0,
+    "gt": 0.0,
+    "risk": 0.0
+  },
+  "continuous_grid": {
+    "grid_step": 0.25,
+    "grid_points": 15,
+    "paired_base_cases": 60,
+    "episodes_per_model": 900,
+    "points_improved": 4,
+    "points_tied": 9,
+    "points_worse": 2,
+    "mean_utility_delta": 0.001626,
+    "min_utility_delta": -0.000813,
+    "max_utility_delta": 0.015504,
+    "action_difference_cases": 262,
+    "schedule_difference_cases": 262,
+    "safety_violations": 0,
+    "rejected_actions": 0,
+    "continuous_grid_gate": true
+  },
+  "limitations": [
+    "This is a single-seed 100k-transition pilot, not a convergence claim.",
+    "The four Phase 8 experts remain frozen; this is not joint end-to-end fine-tuning.",
+    "Two of 15 coarse grid points regress slightly; the worst mean utility delta is -0.000813.",
+    "Count and balanced preferences remain non-diagonal at the four evaluation centroids.",
+    "Weather and resources remain synthetic, and the observation contract remains fixed at 30 vessels."
+  ]
+}

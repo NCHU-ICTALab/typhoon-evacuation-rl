@@ -170,6 +170,19 @@ record 與 soft MoE 向下相容欄位見 `PHASE8_INFERENCE_V1.md`。
 
 建議訊息：`feat: add experimental continuous-preference soft MoE`
 
+## Commit 15：Phase 9B frozen-expert router PPO（已完成 seed-42 pilot）
+
+以 Phase 9A checkpoint 初始化，凍結四個 experts，只更新 preference/state router 與向量
+critic。訓練資料以 50% centroid、50% Dirichlet(0.7) 連續偏好組成；actor 沿用
+preference-first scalar advantage 與單次 PPO clipping。100k-transition pilot 保住 GT/risk
+2/2 與安全 0；15 點 continuous grid 相較 Phase 9A 為 4 改善、9 持平、2 退步，平均 utility
+delta +0.001626、最差 -0.000813，通過 pilot frontend gate。詳見
+`PHASE9B_ROUTER_PPO.md`。
+
+下一步先跑 seeds 43、44 與更細 grid，不直接解凍 experts。
+
+建議訊息：`feat: train continuous soft MoE router with PPO`
+
 ## 整體 MORL 訓練完成後：30 艘容量與部署待辦
 
 目前實驗繼續固定 30 艘，以免在 MORL 演算法比較期間同時改變 observation、action space 與
