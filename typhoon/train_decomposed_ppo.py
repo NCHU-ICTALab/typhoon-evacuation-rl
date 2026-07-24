@@ -22,7 +22,11 @@ from .decomposed_ppo import (
     project_conflicting_gradients,
 )
 from .evaluate_rl import PREFERENCE_PROFILES, evaluate_model
-from .train_conditioned_v2 import _specialist_regret, make_balanced_envs
+from .train_conditioned_v2 import (
+    _specialist_regret,
+    make_balanced_envs,
+    make_profile_envs,
+)
 from .train_rl import split_scenarios
 
 
@@ -331,7 +335,12 @@ def main() -> None:
         "--gradient-surgery", choices=("none", "pcgrad"), default="none"
     )
     parser.add_argument(
-        "--actor-routing", choices=("shared", "hard_heads"), default="shared"
+        "--actor-routing",
+        choices=("shared", "hard_heads", "full_experts"),
+        default="shared",
+    )
+    parser.add_argument(
+        "--fixed-profile", choices=tuple(PREFERENCE_PROFILES), default=None
     )
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--skip-evaluation", action="store_true")
@@ -339,9 +348,21 @@ def main() -> None:
     if args.steps_per_profile <= 0:
         raise ValueError("--steps-per-profile must be positive")
     if args.gradient_surgery == "pcgrad" and args.actor_routing != "shared":
-        raise ValueError("PCGrad + hard_heads is outside this controlled ablation")
+        raise ValueError("PCGrad + routed actors is outside this controlled ablation")
+    if args.fixed_profile is not None and (
+        args.actor_routing != "shared" or args.gradient_surgery != "none"
+    ):
+        raise ValueError(
+            "fixed-profile diagnostic requires shared actor and no gradient surgery"
+        )
     if args.output_dir is None:
-        if args.actor_routing == "hard_heads":
+        if args.fixed_profile is not None:
+            model_family = (
+                Path("decomposed_ppo_fixed_profiles") / args.fixed_profile
+            )
+        elif args.actor_routing == "full_experts":
+            model_family = "decomposed_ppo_full_experts"
+        elif args.actor_routing == "hard_heads":
             model_family = "decomposed_ppo_hard_heads"
         elif args.gradient_surgery == "pcgrad":
             model_family = "decomposed_ppo_pcgrad"
@@ -356,7 +377,18 @@ def main() -> None:
     train_dates, test_dates, train_scenarios, test_scenarios = split_scenarios(
         args.db
     )
-    env = make_balanced_envs(train_scenarios, args.seed)
+    if args.fixed_profile is None:
+        training_profiles = PREFERENCE_PROFILES
+        env = make_balanced_envs(train_scenarios, args.seed)
+    else:
+        training_profiles = {
+            args.fixed_profile: PREFERENCE_PROFILES[args.fixed_profile]
+        }
+        env = make_profile_envs(
+            train_scenarios,
+            args.seed,
+            list(training_profiles.values()),
+        )
     model = DecomposedActorCritic(
         env.observation_space,
         int(env.action_space.n),
@@ -374,7 +406,7 @@ def main() -> None:
     print(
         "Decomposed PPO: "
         f"actor={args.actor_routing}, surgery={args.gradient_surgery}, "
-        f"profiles={n_envs}, "
+        f"fixed_profile={args.fixed_profile or 'none'}, profiles={n_envs}, "
         f"steps/profile={args.steps_per_profile:,}, "
         f"total={total_timesteps:,}, seed={args.seed}",
         flush=True,
@@ -434,18 +466,25 @@ def main() -> None:
     }
     manifest = {
         "profile": (
-            f"conditioned_decomposed_ppo_{args.actor_routing}_"
-            f"{args.gradient_surgery}"
+            args.fixed_profile
+            if args.fixed_profile is not None
+            else (
+                f"conditioned_decomposed_ppo_{args.actor_routing}_"
+                f"{args.gradient_surgery}"
+            )
         ),
         "strategy": "vector_critic_per_objective_gae_late_scalarization"
+        + ("_fixed_profile" if args.fixed_profile is not None else "")
         + ("_hard_preference_heads" if args.actor_routing == "hard_heads" else "")
+        + ("_full_preference_experts" if args.actor_routing == "full_experts" else "")
         + ("_pcgrad_shared_policy" if args.gradient_surgery == "pcgrad" else ""),
         "actor_routing": args.actor_routing,
         "gradient_surgery": args.gradient_surgery,
+        "fixed_profile": args.fixed_profile,
         "steps_per_profile": args.steps_per_profile,
         "total_timesteps": total_timesteps,
         "seed": args.seed,
-        "profiles": PREFERENCE_PROFILES,
+        "profiles": training_profiles,
         "train_dates": train_dates,
         "test_dates": test_dates,
         "hyperparameters": {

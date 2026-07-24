@@ -39,8 +39,10 @@ class DecomposedActorCritic(torch.nn.Module):
         self.action_space = spaces.Discrete(n_actions)
         self.n_actions = int(n_actions)
         self.features_dim = int(features_dim)
-        if actor_routing not in {"shared", "hard_heads"}:
-            raise ValueError("actor_routing must be 'shared' or 'hard_heads'")
+        if actor_routing not in {"shared", "hard_heads", "full_experts"}:
+            raise ValueError(
+                "actor_routing must be 'shared', 'hard_heads', or 'full_experts'"
+            )
         self.actor_routing = actor_routing
         self.extractor = PreferenceGatedExtractor(
             observation_space,
@@ -50,14 +52,8 @@ class DecomposedActorCritic(torch.nn.Module):
             features_dim=features_dim,
         )
         if actor_routing == "shared":
-            self.actor = torch.nn.Sequential(
-                torch.nn.Linear(features_dim, 256),
-                torch.nn.Tanh(),
-                torch.nn.Linear(256, 128),
-                torch.nn.Tanh(),
-                torch.nn.Linear(128, n_actions),
-            )
-        else:
+            self.actor = self._make_actor(features_dim, n_actions)
+        elif actor_routing == "hard_heads":
             self.actor_trunk = torch.nn.Sequential(
                 torch.nn.Linear(features_dim, 256),
                 torch.nn.Tanh(),
@@ -66,6 +62,10 @@ class DecomposedActorCritic(torch.nn.Module):
             )
             self.actor_heads = torch.nn.ModuleList(
                 [torch.nn.Linear(128, n_actions)]
+            )
+        else:
+            self.actor_experts = torch.nn.ModuleList(
+                [self._make_actor(features_dim, n_actions)]
             )
         self.critic = torch.nn.Sequential(
             torch.nn.Linear(features_dim, 256),
@@ -79,41 +79,70 @@ class DecomposedActorCritic(torch.nn.Module):
                 head = torch.nn.Linear(128, n_actions)
                 head.load_state_dict(self.actor_heads[0].state_dict())
                 self.actor_heads.append(head)
+        elif actor_routing == "full_experts":
+            for _ in range(len(ROUTING_PREFERENCES) - 1):
+                expert = self._make_actor(features_dim, n_actions)
+                expert.load_state_dict(self.actor_experts[0].state_dict())
+                self.actor_experts.append(expert)
         self.device = torch.device(device)
         self.to(self.device)
+
+    @staticmethod
+    def _make_actor(features_dim: int, n_actions: int) -> torch.nn.Sequential:
+        return torch.nn.Sequential(
+            torch.nn.Linear(features_dim, 256),
+            torch.nn.Tanh(),
+            torch.nn.Linear(256, 128),
+            torch.nn.Tanh(),
+            torch.nn.Linear(128, n_actions),
+        )
 
     def _features(self, observations: torch.Tensor) -> torch.Tensor:
         return self.extractor(observations)
 
     def policy_parameters(self) -> list[torch.nn.Parameter]:
-        modules = (
-            [self.extractor, self.actor]
-            if self.actor_routing == "shared"
-            else [self.extractor, self.actor_trunk, self.actor_heads]
-        )
+        if self.actor_routing == "shared":
+            modules = [self.extractor, self.actor]
+        elif self.actor_routing == "hard_heads":
+            modules = [self.extractor, self.actor_trunk, self.actor_heads]
+        else:
+            modules = [self.extractor, self.actor_experts]
         return [parameter for module in modules for parameter in module.parameters()]
 
-    def _policy_logits(
-        self, features: torch.Tensor, observations: torch.Tensor
-    ) -> torch.Tensor:
-        if self.actor_routing == "shared":
-            return self.actor(features)
-        hidden = self.actor_trunk(features)
-        all_logits = torch.stack(
-            [head(hidden) for head in self.actor_heads], dim=1
-        )
+    @staticmethod
+    def _routing_indices(observations: torch.Tensor) -> torch.Tensor:
         routing_preferences = torch.as_tensor(
             ROUTING_PREFERENCES,
             dtype=observations.dtype,
             device=observations.device,
         )
         distances = torch.sum(
-            (observations[:, None, -3:] - routing_preferences[None, :, :]).square(),
+            (
+                observations[:, None, -3:]
+                - routing_preferences[None, :, :]
+            ).square(),
             dim=-1,
         )
-        head_indices = distances.argmin(dim=1)
+        return distances.argmin(dim=1)
+
+    def _policy_logits(
+        self, features: torch.Tensor, observations: torch.Tensor
+    ) -> torch.Tensor:
+        if self.actor_routing == "shared":
+            return self.actor(features)
+        if self.actor_routing == "hard_heads":
+            hidden = self.actor_trunk(features)
+            all_logits = torch.stack(
+                [head(hidden) for head in self.actor_heads], dim=1
+            )
+        else:
+            all_logits = torch.stack(
+                [expert(features) for expert in self.actor_experts], dim=1
+            )
+        routing_indices = self._routing_indices(observations)
         return all_logits[
-            torch.arange(len(observations), device=observations.device), head_indices
+            torch.arange(len(observations), device=observations.device),
+            routing_indices,
         ]
 
     def _distribution(

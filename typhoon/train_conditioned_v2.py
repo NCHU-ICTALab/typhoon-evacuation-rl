@@ -57,9 +57,15 @@ class PairedProfileTrainingEnv(TyphoonEvacuationEnv):
         return super().reset(seed=episode_seed, options=paired_options)
 
 
-def make_balanced_envs(scenarios: list[dict], seed: int) -> DummyVecEnv:
+def make_profile_envs(
+    scenarios: list[dict],
+    seed: int,
+    preferences: list[tuple[float, float, float]],
+) -> DummyVecEnv:
+    if not preferences:
+        raise ValueError("preferences must not be empty")
     factories = []
-    for preference in PREFERENCE_PROFILES.values():
+    for preference in preferences:
         def factory(profile_preference=preference):
             env = PairedProfileTrainingEnv(
                 scenarios,
@@ -73,6 +79,14 @@ def make_balanced_envs(scenarios: list[dict], seed: int) -> DummyVecEnv:
 
         factories.append(factory)
     return DummyVecEnv(factories)
+
+
+def make_balanced_envs(scenarios: list[dict], seed: int) -> DummyVecEnv:
+    return make_profile_envs(
+        scenarios,
+        seed,
+        list(PREFERENCE_PROFILES.values()),
+    )
 
 
 def _specialist_regret(evaluation: dict, specialist_path: Path) -> dict | None:

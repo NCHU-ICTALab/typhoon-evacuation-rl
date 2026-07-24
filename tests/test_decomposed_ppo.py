@@ -96,6 +96,48 @@ def test_hard_head_checkpoint_round_trip(tmp_path):
     assert len(loaded.actor_heads) == 4
 
 
+def test_full_experts_start_equal_and_route_each_profile():
+    model = DecomposedActorCritic(_space(), 31, actor_routing="full_experts")
+    first_state = model.actor_experts[0].state_dict()
+    for expert in model.actor_experts[1:]:
+        assert all(
+            torch.equal(first_state[name], value)
+            for name, value in expert.state_dict().items()
+        )
+
+    expected_actions = [3, 6, 9, 12]
+    with torch.no_grad():
+        for expert, action in zip(model.actor_experts, expected_actions):
+            output = expert[-1]
+            output.weight.zero_()
+            output.bias.fill_(-10.0)
+            output.bias[action] = 10.0
+    observations = np.zeros((4, 344), dtype=np.float32)
+    observations[:, :330] = 0.25
+    observations[:, -3:] = np.asarray(
+        [
+            (0.70, 0.15, 0.15),
+            (1 / 3, 1 / 3, 1 / 3),
+            (0.15, 0.70, 0.15),
+            (0.15, 0.15, 0.70),
+        ],
+        dtype=np.float32,
+    )
+    actions, _ = model.predict(
+        observations,
+        deterministic=True,
+        action_masks=np.ones((4, 31), dtype=bool),
+    )
+    assert actions.tolist() == expected_actions
+
+
+def test_full_expert_checkpoint_round_trip(tmp_path):
+    model = DecomposedActorCritic(_space(), 31, actor_routing="full_experts")
+    loaded = DecomposedActorCritic.load(model.save(tmp_path / "full-experts.pt"))
+    assert loaded.actor_routing == "full_experts"
+    assert len(loaded.actor_experts) == 4
+
+
 def test_pcgrad_projects_opposed_gradients_and_preserves_aligned_gradients():
     opposed, opposed_metrics = project_conflicting_gradients(
         [[torch.tensor([1.0, 0.0])], [torch.tensor([-1.0, 0.0])]],

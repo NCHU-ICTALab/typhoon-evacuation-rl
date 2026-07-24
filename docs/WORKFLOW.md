@@ -95,6 +95,31 @@ soft routing。
 
 建議訊息：`feat: add hard preference-head actor routing`
 
+## Commit 9：Full actor experts（Phase 5 已完成）
+
+共享 preference-gated extractor 與三頭 critic，四個 profile 各自使用完整 256/128 actor
+expert。50/60 cases 產生四種不同 action traces，但 cross-utility 對角最佳降為 0/4；GT expert
+偏向 count、risk expert 偏向 GT、count expert 偏向 risk。映射稽核未發現 label wiring bug。
+完整結果見 `PHASE5_RESULTS_SEED42.md`。
+
+結果排除「共享 actor trunk 容量不足」作為主要原因。下一步不直接上 soft MoE，而是以同一套
+custom decomposed PPO 分別訓練四個 fixed-profile models，隔離 multi-profile sharing 與 custom
+optimizer/objective 的影響。
+
+建議訊息：`feat: add full preference-expert ablation`
+
+## Commit 10：Custom fixed-profile gate（Phase 6 已完成）
+
+使用同一 custom decomposed PPO 分別訓練四個完全獨立的 fixed-profile models。四模型不共享
+extractor、critic、optimizer 或 normalization，但 cross-utility 仍只有 balanced 對角最佳；
+舊 SB3 specialists 已證明可達的 GT、risk 皆失敗。完整結果見 `PHASE6_RESULTS_SEED42.md`。
+
+Soft MoE gate 因此未通過，暫不加入 router。問題已定位到 custom actor surrogate／update：
+下一個最小修正是先依 preference scalarize vector advantage，再做一次 normalization 與 PPO
+clipping；待 fixed-profile 恢復 GT、risk 2/4 後才重新考慮 soft MoE。
+
+建議訊息：`feat: add pre-MoE fixed-profile diagnostic`
+
 ## 整體 MORL 訓練完成後：30 艘容量與部署待辦
 
 目前實驗繼續固定 30 艘，以免在 MORL 演算法比較期間同時改變 observation、action space 與

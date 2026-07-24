@@ -131,6 +131,20 @@ def test_phase1_profiles_receive_same_scenario_stream():
     assert count_env.tug_capacity == risk_env.tug_capacity
 
 
+def test_fixed_profile_vec_env_contains_only_requested_preference():
+    from typhoon.train_conditioned_v2 import make_profile_envs
+
+    env = make_profile_envs(
+        [_scenario()],
+        123,
+        [PREFERENCE_PROFILES["gt"]],
+    )
+    observation = env.reset()
+    assert env.num_envs == 1
+    assert np.allclose(observation[0, -3:], PREFERENCE_PROFILES["gt"])
+    env.close()
+
+
 def test_preference_gating_changes_ship_representation():
     import torch
 

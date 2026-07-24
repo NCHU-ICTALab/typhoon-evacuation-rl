@@ -60,6 +60,15 @@ python -m venv .venv
 # Phase 4：共享 trunk + 四個 hard preference heads
 .venv/bin/python -m typhoon.train_decomposed_ppo --db data/ua1008l.sqlite --steps-per-profile 100000 --seed 42 --actor-routing hard_heads
 
+# Phase 5：共享 extractor + 四個完整 actor experts
+.venv/bin/python -m typhoon.train_decomposed_ppo --db data/ua1008l.sqlite --steps-per-profile 100000 --seed 42 --actor-routing full_experts
+
+# Phase 6：soft MoE 前的 custom fixed-profile gate
+for profile in count balanced gt risk; do
+  .venv/bin/python -m typhoon.train_decomposed_ppo --db data/ua1008l.sqlite --steps-per-profile 100000 --seed 42 --batch-size 64 --fixed-profile "$profile" --skip-evaluation
+done
+.venv/bin/python -m typhoon.evaluate_decomposed_specialists --db data/ua1008l.sqlite --seed 42
+
 # 前端與 Python API
 .venv/bin/python -m typhoon.api
 ~~~
@@ -68,4 +77,8 @@ python -m venv .venv
 seed 42 結果分別見 [docs/PHASE3_PCGRAD.md](docs/PHASE3_PCGRAD.md) 與
 [docs/PHASE3_RESULTS_SEED42.md](docs/PHASE3_RESULTS_SEED42.md)。Hard-head routing 的技術與
 結果見 [docs/PHASE4_HARD_HEADS.md](docs/PHASE4_HARD_HEADS.md) 與
-[docs/PHASE4_RESULTS_SEED42.md](docs/PHASE4_RESULTS_SEED42.md)。
+[docs/PHASE4_RESULTS_SEED42.md](docs/PHASE4_RESULTS_SEED42.md)。Full actor experts 的技術與
+結果見 [docs/PHASE5_FULL_EXPERTS.md](docs/PHASE5_FULL_EXPERTS.md) 與
+[docs/PHASE5_RESULTS_SEED42.md](docs/PHASE5_RESULTS_SEED42.md)。Soft MoE 前置 gate 見
+[docs/PHASE6_FIXED_PROFILE_DIAGNOSTIC.md](docs/PHASE6_FIXED_PROFILE_DIAGNOSTIC.md) 與
+[docs/PHASE6_RESULTS_SEED42.md](docs/PHASE6_RESULTS_SEED42.md)。
