@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import torch
 from gymnasium import spaces
 
@@ -6,6 +7,7 @@ from typhoon.decomposed_ppo import (
     DecomposedActorCritic,
     VectorRollout,
     compute_vector_gae,
+    project_conflicting_gradients,
 )
 from typhoon.train_decomposed_ppo import update_policy
 
@@ -53,7 +55,67 @@ def test_decomposed_policy_has_three_values_and_respects_mask():
     assert values.shape == (1, 3)
 
 
-def test_one_decomposed_update_reports_objective_losses_and_cosines():
+def test_hard_heads_start_equal_and_route_each_profile():
+    model = DecomposedActorCritic(_space(), 31, actor_routing="hard_heads")
+    first_state = model.actor_heads[0].state_dict()
+    for head in model.actor_heads[1:]:
+        assert all(
+            torch.equal(first_state[name], value)
+            for name, value in head.state_dict().items()
+        )
+
+    expected_actions = [2, 5, 8, 11]
+    with torch.no_grad():
+        for head, action in zip(model.actor_heads, expected_actions):
+            head.weight.zero_()
+            head.bias.fill_(-10.0)
+            head.bias[action] = 10.0
+    observations = np.zeros((4, 344), dtype=np.float32)
+    observations[:, :330] = 0.25
+    observations[:, -3:] = np.asarray(
+        [
+            (0.70, 0.15, 0.15),
+            (1 / 3, 1 / 3, 1 / 3),
+            (0.15, 0.70, 0.15),
+            (0.15, 0.15, 0.70),
+        ],
+        dtype=np.float32,
+    )
+    actions, _ = model.predict(
+        observations,
+        deterministic=True,
+        action_masks=np.ones((4, 31), dtype=bool),
+    )
+    assert actions.tolist() == expected_actions
+
+
+def test_hard_head_checkpoint_round_trip(tmp_path):
+    model = DecomposedActorCritic(_space(), 31, actor_routing="hard_heads")
+    loaded = DecomposedActorCritic.load(model.save(tmp_path / "hard-heads.pt"))
+    assert loaded.actor_routing == "hard_heads"
+    assert len(loaded.actor_heads) == 4
+
+
+def test_pcgrad_projects_opposed_gradients_and_preserves_aligned_gradients():
+    opposed, opposed_metrics = project_conflicting_gradients(
+        [[torch.tensor([1.0, 0.0])], [torch.tensor([-1.0, 0.0])]],
+        rng=np.random.default_rng(4),
+    )
+    assert torch.allclose(opposed[0], torch.zeros(2), atol=1e-6)
+    assert opposed_metrics["pcgrad_projection_fraction"] == 1.0
+
+    aligned, aligned_metrics = project_conflicting_gradients(
+        [[torch.tensor([1.0, 0.0])], [torch.tensor([2.0, 0.0])]],
+        rng=np.random.default_rng(4),
+    )
+    assert torch.allclose(aligned[0], torch.tensor([3.0, 0.0]))
+    assert aligned_metrics["pcgrad_projection_fraction"] == 0.0
+
+
+@pytest.mark.parametrize("gradient_surgery", ["none", "pcgrad"])
+def test_one_decomposed_update_reports_objective_losses_and_cosines(
+    gradient_surgery,
+):
     torch.manual_seed(3)
     model = DecomposedActorCritic(_space(), 31)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -99,6 +161,7 @@ def test_one_decomposed_update_reports_objective_losses_and_cosines():
         entropy_coef=0.01,
         max_grad_norm=0.5,
         rng=np.random.default_rng(3),
+        gradient_surgery=gradient_surgery,
     )
     assert set(("policy_loss_count", "policy_loss_gt", "policy_loss_risk")) <= set(
         metrics
@@ -110,6 +173,8 @@ def test_one_decomposed_update_reports_objective_losses_and_cosines():
             "gradient_cosine_gt_risk",
         )
     ) <= set(metrics)
+    if gradient_surgery == "pcgrad":
+        assert "pcgrad_projection_fraction" in metrics
     assert all(np.isfinite(value) for value in metrics.values())
 
 

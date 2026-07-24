@@ -54,8 +54,18 @@ python -m venv .venv
 # Phase 2：decomposed critic + per-objective GAE/PPO
 .venv/bin/python -m typhoon.train_decomposed_ppo --db data/ua1008l.sqlite --steps-per-profile 100000 --seed 42
 
+# Phase 3：PCGrad 受控消融（結果不取代 Phase 2）
+.venv/bin/python -m typhoon.train_decomposed_ppo --db data/ua1008l.sqlite --steps-per-profile 100000 --seed 42 --gradient-surgery pcgrad
+
+# Phase 4：共享 trunk + 四個 hard preference heads
+.venv/bin/python -m typhoon.train_decomposed_ppo --db data/ua1008l.sqlite --steps-per-profile 100000 --seed 42 --actor-routing hard_heads
+
 # 前端與 Python API
 .venv/bin/python -m typhoon.api
 ~~~
 
-完整執行順序與 commit 建議見 [docs/WORKFLOW.md](docs/WORKFLOW.md)。
+完整執行順序與 commit 建議見 [docs/WORKFLOW.md](docs/WORKFLOW.md)。PCGrad 技術契約與
+seed 42 結果分別見 [docs/PHASE3_PCGRAD.md](docs/PHASE3_PCGRAD.md) 與
+[docs/PHASE3_RESULTS_SEED42.md](docs/PHASE3_RESULTS_SEED42.md)。Hard-head routing 的技術與
+結果見 [docs/PHASE4_HARD_HEADS.md](docs/PHASE4_HARD_HEADS.md) 與
+[docs/PHASE4_RESULTS_SEED42.md](docs/PHASE4_RESULTS_SEED42.md)。

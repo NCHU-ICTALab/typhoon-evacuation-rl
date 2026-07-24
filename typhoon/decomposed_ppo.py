@@ -14,6 +14,12 @@ from .policy import PreferenceGatedExtractor
 
 
 OBJECTIVE_NAMES = ("count", "gt", "risk")
+ROUTING_PREFERENCES = (
+    (0.70, 0.15, 0.15),
+    (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
+    (0.15, 0.70, 0.15),
+    (0.15, 0.15, 0.70),
+)
 
 
 class DecomposedActorCritic(torch.nn.Module):
@@ -25,6 +31,7 @@ class DecomposedActorCritic(torch.nn.Module):
         n_actions: int,
         *,
         features_dim: int = 256,
+        actor_routing: str = "shared",
         device: str | torch.device = "cpu",
     ):
         super().__init__()
@@ -32,6 +39,9 @@ class DecomposedActorCritic(torch.nn.Module):
         self.action_space = spaces.Discrete(n_actions)
         self.n_actions = int(n_actions)
         self.features_dim = int(features_dim)
+        if actor_routing not in {"shared", "hard_heads"}:
+            raise ValueError("actor_routing must be 'shared' or 'hard_heads'")
+        self.actor_routing = actor_routing
         self.extractor = PreferenceGatedExtractor(
             observation_space,
             n_vessels=30,
@@ -39,13 +49,24 @@ class DecomposedActorCritic(torch.nn.Module):
             global_features=14,
             features_dim=features_dim,
         )
-        self.actor = torch.nn.Sequential(
-            torch.nn.Linear(features_dim, 256),
-            torch.nn.Tanh(),
-            torch.nn.Linear(256, 128),
-            torch.nn.Tanh(),
-            torch.nn.Linear(128, n_actions),
-        )
+        if actor_routing == "shared":
+            self.actor = torch.nn.Sequential(
+                torch.nn.Linear(features_dim, 256),
+                torch.nn.Tanh(),
+                torch.nn.Linear(256, 128),
+                torch.nn.Tanh(),
+                torch.nn.Linear(128, n_actions),
+            )
+        else:
+            self.actor_trunk = torch.nn.Sequential(
+                torch.nn.Linear(features_dim, 256),
+                torch.nn.Tanh(),
+                torch.nn.Linear(256, 128),
+                torch.nn.Tanh(),
+            )
+            self.actor_heads = torch.nn.ModuleList(
+                [torch.nn.Linear(128, n_actions)]
+            )
         self.critic = torch.nn.Sequential(
             torch.nn.Linear(features_dim, 256),
             torch.nn.Tanh(),
@@ -53,17 +74,53 @@ class DecomposedActorCritic(torch.nn.Module):
             torch.nn.Tanh(),
             torch.nn.Linear(128, len(OBJECTIVE_NAMES)),
         )
+        if actor_routing == "hard_heads":
+            for _ in range(len(ROUTING_PREFERENCES) - 1):
+                head = torch.nn.Linear(128, n_actions)
+                head.load_state_dict(self.actor_heads[0].state_dict())
+                self.actor_heads.append(head)
         self.device = torch.device(device)
         self.to(self.device)
 
     def _features(self, observations: torch.Tensor) -> torch.Tensor:
         return self.extractor(observations)
 
+    def policy_parameters(self) -> list[torch.nn.Parameter]:
+        modules = (
+            [self.extractor, self.actor]
+            if self.actor_routing == "shared"
+            else [self.extractor, self.actor_trunk, self.actor_heads]
+        )
+        return [parameter for module in modules for parameter in module.parameters()]
+
+    def _policy_logits(
+        self, features: torch.Tensor, observations: torch.Tensor
+    ) -> torch.Tensor:
+        if self.actor_routing == "shared":
+            return self.actor(features)
+        hidden = self.actor_trunk(features)
+        all_logits = torch.stack(
+            [head(hidden) for head in self.actor_heads], dim=1
+        )
+        routing_preferences = torch.as_tensor(
+            ROUTING_PREFERENCES,
+            dtype=observations.dtype,
+            device=observations.device,
+        )
+        distances = torch.sum(
+            (observations[:, None, -3:] - routing_preferences[None, :, :]).square(),
+            dim=-1,
+        )
+        head_indices = distances.argmin(dim=1)
+        return all_logits[
+            torch.arange(len(observations), device=observations.device), head_indices
+        ]
+
     def _distribution(
         self, observations: torch.Tensor, action_masks: torch.Tensor
     ) -> tuple[Categorical, torch.Tensor]:
         features = self._features(observations)
-        logits = self.actor(features)
+        logits = self._policy_logits(features, observations)
         masked_logits = logits.masked_fill(~action_masks.bool(), -1e9)
         return Categorical(logits=masked_logits), features
 
@@ -127,6 +184,7 @@ class DecomposedActorCritic(torch.nn.Module):
                 "observation_shape": self.observation_space.shape,
                 "n_actions": self.n_actions,
                 "features_dim": self.features_dim,
+                "actor_routing": self.actor_routing,
                 "metadata": metadata or {},
             },
             target,
@@ -148,6 +206,7 @@ class DecomposedActorCritic(torch.nn.Module):
             observation_space,
             int(checkpoint["n_actions"]),
             features_dim=int(checkpoint["features_dim"]),
+            actor_routing=checkpoint.get("actor_routing", "shared"),
             device=device,
         )
         model.load_state_dict(checkpoint["state_dict"])
@@ -203,3 +262,76 @@ def gradient_cosine(
     if denominator.item() <= 1e-12:
         return 0.0
     return float(torch.dot(left_flat, right_flat).div(denominator).detach().cpu())
+
+
+def project_conflicting_gradients(
+    objective_gradients: list[list[torch.Tensor | None]],
+    *,
+    rng: np.random.Generator,
+) -> tuple[list[torch.Tensor], dict[str, float]]:
+    """Apply PCGrad to task gradients and return their summed update.
+
+    Projection is limited to negative dot products. Each task is projected
+    against the original gradient of the other tasks in a randomized order,
+    following the PCGrad algorithm. The caller remains responsible for adding
+    critic and entropy gradients.
+    """
+    if len(objective_gradients) < 2:
+        raise ValueError("PCGrad requires at least two objective gradients")
+    width = len(objective_gradients[0])
+    if width == 0 or any(len(items) != width for items in objective_gradients):
+        raise ValueError("objective gradients must have equal non-zero length")
+
+    dense: list[list[torch.Tensor]] = []
+    for objective in objective_gradients:
+        dense_objective = []
+        for index, item in enumerate(objective):
+            if item is None:
+                template = next(
+                    (
+                        candidate[index]
+                        for candidate in objective_gradients
+                        if candidate[index] is not None
+                    ),
+                    None,
+                )
+                if template is None:
+                    raise ValueError("a parameter is unused by every objective")
+                item = torch.zeros_like(template)
+            dense_objective.append(item.detach().clone())
+        dense.append(dense_objective)
+
+    projected = [[item.clone() for item in objective] for objective in dense]
+    comparisons = 0
+    projections = 0
+    for left_index in range(len(projected)):
+        order = rng.permutation(len(dense))
+        for right_index in order:
+            if left_index == int(right_index):
+                continue
+            comparisons += 1
+            dot = sum(
+                torch.sum(left * right)
+                for left, right in zip(projected[left_index], dense[int(right_index)])
+            )
+            if dot.item() >= 0.0:
+                continue
+            norm_squared = sum(
+                torch.sum(right.square()) for right in dense[int(right_index)]
+            )
+            if norm_squared.item() <= 1e-12:
+                continue
+            coefficient = dot / norm_squared
+            projected[left_index] = [
+                left - coefficient * right
+                for left, right in zip(
+                    projected[left_index], dense[int(right_index)]
+                )
+            ]
+            projections += 1
+
+    merged = [sum(items) for items in zip(*projected)]
+    return merged, {
+        "pcgrad_projection_count": float(projections),
+        "pcgrad_projection_fraction": float(projections / max(comparisons, 1)),
+    }

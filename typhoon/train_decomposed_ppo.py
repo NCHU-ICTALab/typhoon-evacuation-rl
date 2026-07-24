@@ -19,6 +19,7 @@ from .decomposed_ppo import (
     VectorRollout,
     compute_vector_gae,
     gradient_cosine,
+    project_conflicting_gradients,
 )
 from .evaluate_rl import PREFERENCE_PROFILES, evaluate_model
 from .train_conditioned_v2 import _specialist_regret, make_balanced_envs
@@ -114,8 +115,13 @@ def update_policy(
     entropy_coef: float,
     max_grad_norm: float,
     rng: np.random.Generator,
+    gradient_surgery: str = "none",
+    pcgrad_rng: np.random.Generator | None = None,
 ) -> dict:
     assert rollout.advantages is not None and rollout.returns is not None
+    if gradient_surgery not in {"none", "pcgrad"}:
+        raise ValueError("gradient_surgery must be 'none' or 'pcgrad'")
+    projection_rng = pcgrad_rng if pcgrad_rng is not None else rng
     count = math.prod(rollout.actions.shape)
     observations = rollout.observations.reshape(count, -1)
     actions = rollout.actions.reshape(count)
@@ -149,10 +155,7 @@ def update_policy(
         ),
     }
 
-    actor_parameters = [
-        *model.extractor.parameters(),
-        *model.actor.parameters(),
-    ]
+    actor_parameters = model.policy_parameters()
     metrics = defaultdict(list)
     cosine_recorded = False
     for _ in range(epochs):
@@ -172,6 +175,9 @@ def update_policy(
             )[:, None] * batch_advantages
             objective_surrogate = torch.minimum(unclipped, clipped)
             objective_policy_losses = -objective_surrogate.mean(dim=0)
+            weighted_objective_policy_losses = -(
+                tensors["preferences"][batch] * objective_surrogate
+            ).mean(dim=0)
 
             # Late scalarization: clipping happens per objective first, then
             # each transition's preference combines the stabilized surrogates.
@@ -188,11 +194,15 @@ def update_policy(
                 + entropy_coef * entropy_loss
             )
 
-            if not cosine_recorded:
+            record_gradient_diagnostics = (
+                gradient_surgery == "pcgrad" or not cosine_recorded
+            )
+            objective_gradients = None
+            if record_gradient_diagnostics:
                 objective_gradients = [
                     list(
                         torch.autograd.grad(
-                            objective_policy_losses[index],
+                            weighted_objective_policy_losses[index],
                             actor_parameters,
                             retain_graph=True,
                             allow_unused=True,
@@ -200,25 +210,45 @@ def update_policy(
                     )
                     for index in range(3)
                 ]
-                metrics["gradient_cosine_count_gt"].append(
-                    gradient_cosine(
-                        objective_gradients[0], objective_gradients[1]
+                pairs = {
+                    "count_gt": (0, 1),
+                    "count_risk": (0, 2),
+                    "gt_risk": (1, 2),
+                }
+                for name, (left, right) in pairs.items():
+                    cosine = gradient_cosine(
+                        objective_gradients[left], objective_gradients[right]
                     )
-                )
-                metrics["gradient_cosine_count_risk"].append(
-                    gradient_cosine(
-                        objective_gradients[0], objective_gradients[2]
+                    metrics[f"gradient_cosine_{name}"].append(cosine)
+                    metrics[f"gradient_negative_fraction_{name}"].append(
+                        float(cosine < 0.0)
                     )
-                )
-                metrics["gradient_cosine_gt_risk"].append(
-                    gradient_cosine(
-                        objective_gradients[1], objective_gradients[2]
-                    )
-                )
                 cosine_recorded = True
 
             optimizer.zero_grad()
-            loss.backward()
+            if gradient_surgery == "pcgrad":
+                assert objective_gradients is not None
+                merged_policy_gradients, projection_metrics = (
+                    project_conflicting_gradients(
+                        objective_gradients,
+                        rng=projection_rng,
+                    )
+                )
+                auxiliary_loss = (
+                    value_coef * value_loss + entropy_coef * entropy_loss
+                )
+                auxiliary_loss.backward()
+                for parameter, policy_gradient in zip(
+                    actor_parameters, merged_policy_gradients
+                ):
+                    if parameter.grad is None:
+                        parameter.grad = policy_gradient.clone()
+                    else:
+                        parameter.grad.add_(policy_gradient)
+                for key, value in projection_metrics.items():
+                    metrics[key].append(value)
+            else:
+                loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
             optimizer.step()
 
@@ -298,20 +328,31 @@ def main() -> None:
     parser.add_argument("--max-grad-norm", type=float, default=0.5)
     parser.add_argument("--device", default="cpu")
     parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path(__file__).resolve().parent
-        / "models"
-        / "decomposed_ppo",
+        "--gradient-surgery", choices=("none", "pcgrad"), default="none"
     )
+    parser.add_argument(
+        "--actor-routing", choices=("shared", "hard_heads"), default="shared"
+    )
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--skip-evaluation", action="store_true")
     args = parser.parse_args()
     if args.steps_per_profile <= 0:
         raise ValueError("--steps-per-profile must be positive")
+    if args.gradient_surgery == "pcgrad" and args.actor_routing != "shared":
+        raise ValueError("PCGrad + hard_heads is outside this controlled ablation")
+    if args.output_dir is None:
+        if args.actor_routing == "hard_heads":
+            model_family = "decomposed_ppo_hard_heads"
+        elif args.gradient_surgery == "pcgrad":
+            model_family = "decomposed_ppo_pcgrad"
+        else:
+            model_family = "decomposed_ppo"
+        args.output_dir = Path(__file__).resolve().parent / "models" / model_family
 
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
+    pcgrad_rng = np.random.default_rng(args.seed + 1_000_003)
     train_dates, test_dates, train_scenarios, test_scenarios = split_scenarios(
         args.db
     )
@@ -319,6 +360,7 @@ def main() -> None:
     model = DecomposedActorCritic(
         env.observation_space,
         int(env.action_space.n),
+        actor_routing=args.actor_routing,
         device=args.device,
     )
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
@@ -331,7 +373,9 @@ def main() -> None:
     last_metrics = {}
     print(
         "Decomposed PPO: "
-        f"profiles={n_envs}, steps/profile={args.steps_per_profile:,}, "
+        f"actor={args.actor_routing}, surgery={args.gradient_surgery}, "
+        f"profiles={n_envs}, "
+        f"steps/profile={args.steps_per_profile:,}, "
         f"total={total_timesteps:,}, seed={args.seed}",
         flush=True,
     )
@@ -359,10 +403,12 @@ def main() -> None:
             entropy_coef=args.entropy_coef,
             max_grad_norm=args.max_grad_norm,
             rng=rng,
+            gradient_surgery=args.gradient_surgery,
+            pcgrad_rng=pcgrad_rng,
         )
         timesteps += rollout_steps * n_envs
         for key, value in last_metrics.items():
-            if key.startswith("gradient_cosine_"):
+            if key.startswith("gradient_") or key.startswith("pcgrad_"):
                 cosine_history[key].append(value)
         if timesteps >= next_report or timesteps >= total_timesteps:
             print(
@@ -379,10 +425,23 @@ def main() -> None:
     gradient_cosines = {
         key: round(float(np.mean(values)), 6)
         for key, values in cosine_history.items()
+        if key.startswith("gradient_cosine_")
+    }
+    gradient_conflicts = {
+        key: round(float(np.mean(values)), 6)
+        for key, values in cosine_history.items()
+        if key.startswith("gradient_negative_fraction_")
     }
     manifest = {
-        "profile": "conditioned_decomposed_ppo",
-        "strategy": "vector_critic_per_objective_gae_late_scalarization",
+        "profile": (
+            f"conditioned_decomposed_ppo_{args.actor_routing}_"
+            f"{args.gradient_surgery}"
+        ),
+        "strategy": "vector_critic_per_objective_gae_late_scalarization"
+        + ("_hard_preference_heads" if args.actor_routing == "hard_heads" else "")
+        + ("_pcgrad_shared_policy" if args.gradient_surgery == "pcgrad" else ""),
+        "actor_routing": args.actor_routing,
+        "gradient_surgery": args.gradient_surgery,
         "steps_per_profile": args.steps_per_profile,
         "total_timesteps": total_timesteps,
         "seed": args.seed,
@@ -400,8 +459,19 @@ def main() -> None:
             "value_coef": args.value_coef,
             "entropy_coef": args.entropy_coef,
             "max_grad_norm": args.max_grad_norm,
+            **(
+                {"pcgrad_projection_seed": args.seed + 1_000_003}
+                if args.gradient_surgery == "pcgrad"
+                else {}
+            ),
         },
         "gradient_cosines": gradient_cosines,
+        "gradient_negative_fractions": gradient_conflicts,
+        "pcgrad_projection_fraction": round(
+            float(np.mean(cosine_history["pcgrad_projection_fraction"])), 6
+        )
+        if cosine_history["pcgrad_projection_fraction"]
+        else 0.0,
         "last_update_metrics": last_metrics,
     }
     model_path = output_dir / "final.pt"

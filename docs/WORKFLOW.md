@@ -64,7 +64,49 @@ critic 與 policy loss。
 
 已加入 vector rollout、三頭 critic、逐目標 GAE、逐目標 PPO clipping、late scalarization 與
 gradient cosine diagnostics。Seed 42 結果見 `PHASE2_RESULTS_SEED42.md`：GT credit assignment
-明顯改善，但 cross-utility 仍只有 count 對角最佳。下一個最小實驗是 gradient conflict 分布
-與 shared actor 對照 preference heads；Envelope Q-learning 繼續保留為獨立 benchmark。
+明顯改善，但 cross-utility 仍只有 count 對角最佳。Post-hoc 分布確認 count–GT、GT–risk
+分別有 38%、40% 負 cosine，因此進入 PCGrad 受控消融；Envelope Q-learning 繼續保留為
+獨立 benchmark。
 
 建議訊息：`feat: add decomposed multi-objective PPO`
+
+## Commit 7：PCGrad 受控消融（Phase 3 已完成）
+
+PCGrad 只作用於 shared actor/extractor 的 preference-weighted objective policy gradient；critic、
+entropy、資料順序、訓練量與 hard action mask 維持不變。Seed 42 投影比例為 26.43%，但
+cross-utility 對角最佳由 1/4 降為 0/4，GT utility 由 0.3633 降為 0.3486。結果證明負 cosine
+包含有意義的 MORL 取捨，不能一律視為有害干擾。完整結果見 `PHASE3_RESULTS_SEED42.md`。
+
+本 checkpoint 不取代 Phase 2。下一個研究步驟是 shared trunk + preference-specific heads／
+soft mixture-of-experts 的 actor routing ablation。
+
+建議訊息：`feat: add PCGrad policy-gradient ablation`
+
+## Commit 8：Hard preference heads（Phase 4 已完成）
+
+保留 shared preference-gated extractor、actor trunk 與三頭 critic，只將 action output 分成
+四個相同初始化的 preference heads。行為差異提升至 59/60，52/60 cases 的四種 action trace
+全不同；但 cross-utility 仍只有 count 對角最佳。count head 甚至在四種評分下全部最高，
+顯示其他 heads 的 policy region 學習不足。完整結果見 `PHASE4_RESULTS_SEED42.md`。
+
+四個獨立 specialist 本身只有 GT、risk 對角最佳，因此後續先以恢復這 2/4 與降低 specialist
+regret 為門檻。下一個結構消融是 shared extractor + 四個完整 actor experts，不直接跳到
+soft routing。
+
+建議訊息：`feat: add hard preference-head actor routing`
+
+## 整體 MORL 訓練完成後：30 艘容量與部署待辦
+
+目前實驗繼續固定 30 艘，以免在 MORL 演算法比較期間同時改變 observation、action space 與
+資料分布。部署前再處理以下事項：
+
+1. 先以真實紀錄驗證「同一決策時點的在港待撤船數」分布；每日出港紀錄數不等於同時在港
+   船數。若大部分時點接近或低於 30，保留 30-slot 容量即可，不必立刻改成任意長度模型。
+2. 多於 30 艘時採 rolling top-30 candidate window；以 readiness、可行性與封港緊迫度等
+   確定性規則選入，派船或事件推進後重新建立候選集。排序規則必須固定，避免 slot 漂移。
+3. 少於 30 艘時補空 slot。依目前絕對時間定義，空位可暫設
+   `ready_hour = now + 4 × (closure_hour - now)`，而不是只填相對剩餘時間。
+4. 準備時間只能當額外防線；空 slot 必須有 `valid_vessel = 0`，對應 action 永久 mask，且
+   count、GT、risk 的分母使用真實船舶，不把 padding 算進 KPI。
+5. 這項變更需要以不同實際船數重新訓練與評估，不能把未看過 padding 的現有 checkpoint
+   直接宣稱為可變船數模型。

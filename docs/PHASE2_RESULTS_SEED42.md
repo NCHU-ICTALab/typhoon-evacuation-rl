@@ -47,19 +47,60 @@ balanced、risk 小幅退步；同一模型內，balanced、GT、risk utility �
 | count–risk | 0.7246 |
 | GT–risk | 0.2193 |
 
-平均皆為正值，尤其 count–risk 高度同向；目前沒有充分證據立即套用 PCGrad。最後一個
-rollout 的 count–GT 與 count–risk 為負，但單一 rollout 不足以代表整體。後續應保存負
-cosine 發生率、分位數與 gradient norm，再決定 gradient surgery。
+訓練平均值只能說明整體方向，無法顯示 rollout 間的正負切換。因此另以 seed 42 最終
+checkpoint 做 post-hoc 診斷：凍結模型、不更新參數，重新抽取平衡的四偏好 rollout；
+共 50 個 rollout、每次 64 steps × 4 profiles，合計 12,800 transitions。每個 scope 有
+50 個 cosine 樣本，梯度由 normalized objective advantage 的 actor loss 計算。
+
+### Aggregate 分布
+
+| Pair | Mean | Std | Min | P05 | P25 | Median | P75 | P95 | Max | 負 cosine |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| count–GT | 0.177 | 0.539 | -0.878 | -0.687 | -0.323 | 0.314 | 0.635 | 0.868 | 0.965 | 38% |
+| count–risk | 0.717 | 0.258 | -0.009 | 0.137 | 0.583 | 0.812 | 0.903 | 0.962 | 0.994 | 2% |
+| GT–risk | 0.208 | 0.477 | -0.800 | -0.472 | -0.216 | 0.295 | 0.600 | 0.857 | 0.924 | 40% |
+
+平均 cosine 為正確實掩蓋了局部衝突：count–GT 與 GT–risk 的負值比例分別是 38% 與
+40%，且 P25 已落在負值；相反地，count–risk 幾乎總是同向，負值只有 2%。
+
+### 各偏好下的負 cosine 比例
+
+| Rollout profile | count–GT | count–risk | GT–risk |
+|---|---:|---:|---:|
+| count | 42% | 10% | 30% |
+| balanced | 32% | 10% | 28% |
+| GT | 44% | 0% | 38% |
+| risk | 34% | 8% | 24% |
+
+衝突在 GT profile 最明顯：count–GT 為 44%、GT–risk 為 38%。這與 Phase 2 中 GT
+需要 decomposed credit assignment 才明顯改善的結果一致。balanced profile 也有 32%
+與 28% 的 GT 相關衝突，可能阻礙單一輸出同時成為 balanced utility 的對角最佳。
+
+### Gradient norm
+
+| Objective | Mean norm | Std |
+|---|---:|---:|
+| count | 1.034 | 0.427 |
+| GT | 1.010 | 0.346 |
+| risk | 0.984 | 0.400 |
+
+三個 objective 的平均 gradient norm 接近，因此目前觀察到的負 cosine 不能只解釋為
+某一目標梯度量級特別大。需注意這是 final policy 的 post-hoc、seed 42 單次診斷；
+足以支持下一個受控消融，但還不是跨 seed 的統計結論。
 
 ## 結論與下一步
 
 1. 保留 decomposed critic：它確實改善 GT，不回到 early scalarization。
 2. 暫不只增加 steps，也不立刻加入 diversity regularizer。
-3. 下一個最小實驗應記錄完整 gradient conflict 分布，並做 actor 結構 ablation：
-   shared actor 對照 shared trunk + 四個 preference heads／mixture-of-experts。
-4. 若負 cosine 比例高，再加入 PCGrad；若不高，問題較可能是共享 actor 容量或四個線性
-   preference 的 policy routing，而不是單純梯度互斥。
-5. 在 cross-utility 對角最佳改善前，不切換前端正式模型，也不擴到多 seed。
+3. 下一個最小實驗改為同一 seed、同一資料順序與超參數下，比較「目前 decomposed PPO」
+   與「shared actor/extractor 加 PCGrad」；PCGrad 僅在 objective dot product 為負時投影。
+4. 主要假說是處理 count–GT、GT–risk 的局部衝突；count–risk 高度同向，不應被當作
+   需要拆解的主要問題。應同時追蹤 utility、specialist regret、cross-utility 對角最佳與
+   負 cosine 比例，避免只改善梯度指標。
+5. 若 PCGrad 無法改善 balanced/risk routing，再做 shared trunk + preference heads 或
+   mixture-of-experts 的 actor 結構 ablation。
+6. 在 cross-utility 對角最佳改善前，不切換前端正式模型，也不直接擴到多 seed；先確認
+   seed 42 的受控消融是否有方向性效果。
 
 完整輸出位於被 Git 忽略的：
 
@@ -67,3 +108,4 @@ cosine 發生率、分位數與 gradient norm，再決定 gradient surgery。
 - `typhoon/models/decomposed_ppo/seed-42/training_manifest.json`
 - `typhoon/models/decomposed_ppo/seed-42/evaluation.json`
 - `typhoon/models/decomposed_ppo/seed-42/comparison.json`
+- `typhoon/models/decomposed_ppo/seed-42/gradient_cosine_diagnostic.json`
