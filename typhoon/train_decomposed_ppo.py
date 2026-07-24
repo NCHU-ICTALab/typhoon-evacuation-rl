@@ -1,4 +1,4 @@
-"""Train decomposed Maskable PPO with vector critics and late scalarization."""
+"""Train decomposed Maskable PPO with configurable actor scalarization."""
 
 from __future__ import annotations
 
@@ -107,6 +107,86 @@ def collect_rollout(
     return rollout, observation
 
 
+def preference_first_advantages(
+    advantages: np.ndarray,
+    preferences: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Scalarize vector advantages before applying one normalization.
+
+    The returned objective contributions add up to the normalized scalar
+    advantage. They are only used to report additive gradient diagnostics; the
+    actor update itself uses the scalar advantage.
+    """
+    if advantages.shape != preferences.shape or advantages.shape[-1] != 3:
+        raise ValueError("advantages and preferences must share shape (n, 3)")
+    weighted_components = advantages * preferences
+    scalar_advantages = weighted_components.sum(axis=1)
+    scalar_std = scalar_advantages.std() + 1e-8
+    normalized_scalar = (
+        scalar_advantages - scalar_advantages.mean()
+    ) / scalar_std
+    normalized_components = (
+        weighted_components
+        - weighted_components.mean(axis=0, keepdims=True)
+    ) / scalar_std
+    return (
+        normalized_scalar.astype(np.float32),
+        normalized_components.astype(np.float32),
+    )
+
+
+def single_clipped_surrogate(
+    ratio: torch.Tensor,
+    scalar_advantages: torch.Tensor,
+    clip_range: float,
+) -> torch.Tensor:
+    """Apply PPO clipping once to an already scalarized advantage."""
+    clipped_ratio = torch.clamp(
+        ratio, 1.0 - clip_range, 1.0 + clip_range
+    )
+    return torch.minimum(
+        ratio * scalar_advantages,
+        clipped_ratio * scalar_advantages,
+    )
+
+
+def critic_loss_components(
+    predicted_values: torch.Tensor,
+    returns: torch.Tensor,
+    preferences: torch.Tensor,
+    *,
+    critic_mode: str,
+    vector_aux_coef: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return total, scalarized, and vector critic losses."""
+    if critic_mode not in {"vector_equal", "preference_scalar_aux"}:
+        raise ValueError(
+            "critic_mode must be 'vector_equal' or 'preference_scalar_aux'"
+        )
+    if vector_aux_coef < 0.0:
+        raise ValueError("vector_aux_coef must be non-negative")
+    if not (
+        predicted_values.shape == returns.shape == preferences.shape
+        and predicted_values.shape[-1] == 3
+    ):
+        raise ValueError(
+            "predicted_values, returns, and preferences must share shape (n, 3)"
+        )
+
+    vector_loss = torch.nn.functional.mse_loss(predicted_values, returns)
+    scalar_values = torch.sum(predicted_values * preferences, dim=1)
+    scalar_returns = torch.sum(returns * preferences, dim=1)
+    scalar_loss = torch.nn.functional.mse_loss(
+        scalar_values, scalar_returns
+    )
+    total_loss = (
+        vector_loss
+        if critic_mode == "vector_equal"
+        else scalar_loss + vector_aux_coef * vector_loss
+    )
+    return total_loss, scalar_loss, vector_loss
+
+
 def update_policy(
     model: DecomposedActorCritic,
     optimizer: torch.optim.Optimizer,
@@ -121,10 +201,27 @@ def update_policy(
     rng: np.random.Generator,
     gradient_surgery: str = "none",
     pcgrad_rng: np.random.Generator | None = None,
+    surrogate_mode: str = "per_objective",
+    critic_mode: str = "vector_equal",
+    vector_value_aux_coef: float = 0.1,
 ) -> dict:
     assert rollout.advantages is not None and rollout.returns is not None
     if gradient_surgery not in {"none", "pcgrad"}:
         raise ValueError("gradient_surgery must be 'none' or 'pcgrad'")
+    if surrogate_mode not in {"per_objective", "preference_first"}:
+        raise ValueError(
+            "surrogate_mode must be 'per_objective' or 'preference_first'"
+        )
+    if gradient_surgery == "pcgrad" and surrogate_mode != "per_objective":
+        raise ValueError(
+            "PCGrad is only defined for the per_objective surrogate"
+        )
+    if critic_mode not in {"vector_equal", "preference_scalar_aux"}:
+        raise ValueError(
+            "critic_mode must be 'vector_equal' or 'preference_scalar_aux'"
+        )
+    if vector_value_aux_coef < 0.0:
+        raise ValueError("vector_value_aux_coef must be non-negative")
     projection_rng = pcgrad_rng if pcgrad_rng is not None else rng
     count = math.prod(rollout.actions.shape)
     observations = rollout.observations.reshape(count, -1)
@@ -132,13 +229,21 @@ def update_policy(
     old_log_probs = rollout.old_log_probs.reshape(count)
     action_masks = rollout.action_masks.reshape(count, model.n_actions)
     preferences = rollout.preferences.reshape(count, 3)
-    advantages = rollout.advantages.reshape(count, 3)
+    vector_advantages = rollout.advantages.reshape(count, 3)
     returns = rollout.returns.reshape(count, 3)
 
-    # Normalize each objective independently before any preference weighting.
-    advantages = (advantages - advantages.mean(axis=0, keepdims=True)) / (
-        advantages.std(axis=0, keepdims=True) + 1e-8
-    )
+    if surrogate_mode == "per_objective":
+        # Legacy Phase 2-6 behavior: normalize and clip each objective before
+        # applying the preference weights.
+        actor_advantages = (
+            vector_advantages
+            - vector_advantages.mean(axis=0, keepdims=True)
+        ) / (vector_advantages.std(axis=0, keepdims=True) + 1e-8)
+        objective_contributions = None
+    else:
+        actor_advantages, objective_contributions = (
+            preference_first_advantages(vector_advantages, preferences)
+        )
     tensors = {
         "observations": torch.as_tensor(
             observations, dtype=torch.float32, device=model.device
@@ -152,12 +257,18 @@ def update_policy(
             preferences, dtype=torch.float32, device=model.device
         ),
         "advantages": torch.as_tensor(
-            advantages, dtype=torch.float32, device=model.device
+            actor_advantages, dtype=torch.float32, device=model.device
         ),
         "returns": torch.as_tensor(
             returns, dtype=torch.float32, device=model.device
         ),
     }
+    if objective_contributions is not None:
+        tensors["objective_contributions"] = torch.as_tensor(
+            objective_contributions,
+            dtype=torch.float32,
+            device=model.device,
+        )
 
     actor_parameters = model.policy_parameters()
     metrics = defaultdict(list)
@@ -173,23 +284,48 @@ def update_policy(
             )
             ratio = torch.exp(log_prob - tensors["old_log_probs"][batch])
             batch_advantages = tensors["advantages"][batch]
-            unclipped = ratio[:, None] * batch_advantages
-            clipped = torch.clamp(
+            clipped_ratio = torch.clamp(
                 ratio, 1.0 - clip_range, 1.0 + clip_range
-            )[:, None] * batch_advantages
-            objective_surrogate = torch.minimum(unclipped, clipped)
-            objective_policy_losses = -objective_surrogate.mean(dim=0)
-            weighted_objective_policy_losses = -(
-                tensors["preferences"][batch] * objective_surrogate
-            ).mean(dim=0)
+            )
+            if surrogate_mode == "per_objective":
+                unclipped = ratio[:, None] * batch_advantages
+                clipped = clipped_ratio[:, None] * batch_advantages
+                objective_surrogate = torch.minimum(unclipped, clipped)
+                objective_policy_losses = -objective_surrogate.mean(dim=0)
+                weighted_objective_policy_losses = -(
+                    tensors["preferences"][batch] * objective_surrogate
+                ).mean(dim=0)
+                policy_loss = -torch.sum(
+                    tensors["preferences"][batch] * objective_surrogate,
+                    dim=1,
+                ).mean()
+            else:
+                unclipped = ratio * batch_advantages
+                clipped = clipped_ratio * batch_advantages
+                scalar_surrogate = single_clipped_surrogate(
+                    ratio, batch_advantages, clip_range
+                )
+                policy_loss = -scalar_surrogate.mean()
 
-            # Late scalarization: clipping happens per objective first, then
-            # each transition's preference combines the stabilized surrogates.
-            policy_loss = -torch.sum(
-                tensors["preferences"][batch] * objective_surrogate, dim=1
-            ).mean()
-            value_loss = torch.nn.functional.mse_loss(
-                predicted_values, tensors["returns"][batch]
+                # Apply the scalar surrogate's clipping branch to additive
+                # objective contributions used only for diagnostics.
+                selected_ratio = torch.where(
+                    unclipped <= clipped, ratio, clipped_ratio
+                )
+                objective_surrogate = (
+                    selected_ratio[:, None]
+                    * tensors["objective_contributions"][batch]
+                )
+                objective_policy_losses = -objective_surrogate.mean(dim=0)
+                weighted_objective_policy_losses = objective_policy_losses
+            value_loss, scalar_value_loss, vector_value_loss = (
+                critic_loss_components(
+                    predicted_values,
+                    tensors["returns"][batch],
+                    tensors["preferences"][batch],
+                    critic_mode=critic_mode,
+                    vector_aux_coef=vector_value_aux_coef,
+                )
             )
             entropy_loss = -entropy.mean()
             loss = (
@@ -266,6 +402,12 @@ def update_policy(
                 )
             metrics["policy_loss"].append(float(policy_loss.detach().cpu()))
             metrics["value_loss"].append(float(value_loss.detach().cpu()))
+            metrics["scalar_value_loss"].append(
+                float(scalar_value_loss.detach().cpu())
+            )
+            metrics["vector_value_loss"].append(
+                float(vector_value_loss.detach().cpu())
+            )
             metrics["entropy"].append(float(entropy.mean().detach().cpu()))
             metrics["approximate_kl"].append(float(approximate_kl.cpu()))
             metrics["clip_fraction"].append(float(clip_fraction.cpu()))
@@ -342,6 +484,21 @@ def main() -> None:
     parser.add_argument(
         "--fixed-profile", choices=tuple(PREFERENCE_PROFILES), default=None
     )
+    parser.add_argument(
+        "--surrogate-mode",
+        choices=("per_objective", "preference_first"),
+        default="per_objective",
+        help=(
+            "Actor surrogate: legacy per-objective clipping or preference "
+            "scalarization followed by one normalization and clipping."
+        ),
+    )
+    parser.add_argument(
+        "--critic-mode",
+        choices=("vector_equal", "preference_scalar_aux"),
+        default="vector_equal",
+    )
+    parser.add_argument("--vector-value-aux-coef", type=float, default=0.1)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--skip-evaluation", action="store_true")
     args = parser.parse_args()
@@ -349,6 +506,22 @@ def main() -> None:
         raise ValueError("--steps-per-profile must be positive")
     if args.gradient_surgery == "pcgrad" and args.actor_routing != "shared":
         raise ValueError("PCGrad + routed actors is outside this controlled ablation")
+    if (
+        args.gradient_surgery == "pcgrad"
+        and args.surrogate_mode != "per_objective"
+    ):
+        raise ValueError(
+            "PCGrad is outside the preference-first controlled ablation"
+        )
+    if args.vector_value_aux_coef < 0.0:
+        raise ValueError("--vector-value-aux-coef must be non-negative")
+    if (
+        args.critic_mode == "preference_scalar_aux"
+        and args.surrogate_mode != "preference_first"
+    ):
+        raise ValueError(
+            "preference-scalar critic requires preference-first surrogate"
+        )
     if args.fixed_profile is not None and (
         args.actor_routing != "shared" or args.gradient_surgery != "none"
     ):
@@ -357,9 +530,20 @@ def main() -> None:
         )
     if args.output_dir is None:
         if args.fixed_profile is not None:
-            model_family = (
-                Path("decomposed_ppo_fixed_profiles") / args.fixed_profile
+            fixed_family = (
+                "decomposed_ppo_preference_first_scalar_critic_fixed_profiles"
+                if args.critic_mode == "preference_scalar_aux"
+                else (
+                    "decomposed_ppo_preference_first_fixed_profiles"
+                    if args.surrogate_mode == "preference_first"
+                    else "decomposed_ppo_fixed_profiles"
+                )
             )
+            model_family = Path(fixed_family) / args.fixed_profile
+        elif args.critic_mode == "preference_scalar_aux":
+            model_family = "decomposed_ppo_preference_first_scalar_critic"
+        elif args.surrogate_mode == "preference_first":
+            model_family = "decomposed_ppo_preference_first"
         elif args.actor_routing == "full_experts":
             model_family = "decomposed_ppo_full_experts"
         elif args.actor_routing == "hard_heads":
@@ -406,6 +590,8 @@ def main() -> None:
     print(
         "Decomposed PPO: "
         f"actor={args.actor_routing}, surgery={args.gradient_surgery}, "
+        f"surrogate={args.surrogate_mode}, "
+        f"critic={args.critic_mode}, "
         f"fixed_profile={args.fixed_profile or 'none'}, profiles={n_envs}, "
         f"steps/profile={args.steps_per_profile:,}, "
         f"total={total_timesteps:,}, seed={args.seed}",
@@ -437,6 +623,9 @@ def main() -> None:
             rng=rng,
             gradient_surgery=args.gradient_surgery,
             pcgrad_rng=pcgrad_rng,
+            surrogate_mode=args.surrogate_mode,
+            critic_mode=args.critic_mode,
+            vector_value_aux_coef=args.vector_value_aux_coef,
         )
         timesteps += rollout_steps * n_envs
         for key, value in last_metrics.items():
@@ -473,13 +662,25 @@ def main() -> None:
                 f"{args.gradient_surgery}"
             )
         ),
-        "strategy": "vector_critic_per_objective_gae_late_scalarization"
+        "strategy": "vector_critic_per_objective_gae_"
+        + (
+            "preference_first_scalar_advantage_single_clip"
+            if args.surrogate_mode == "preference_first"
+            else "late_scalarization"
+        )
         + ("_fixed_profile" if args.fixed_profile is not None else "")
         + ("_hard_preference_heads" if args.actor_routing == "hard_heads" else "")
         + ("_full_preference_experts" if args.actor_routing == "full_experts" else "")
-        + ("_pcgrad_shared_policy" if args.gradient_surgery == "pcgrad" else ""),
+        + ("_pcgrad_shared_policy" if args.gradient_surgery == "pcgrad" else "")
+        + (
+            f"_preference_scalar_value_aux_{args.vector_value_aux_coef:g}"
+            if args.critic_mode == "preference_scalar_aux"
+            else ""
+        ),
         "actor_routing": args.actor_routing,
         "gradient_surgery": args.gradient_surgery,
+        "surrogate_mode": args.surrogate_mode,
+        "critic_mode": args.critic_mode,
         "fixed_profile": args.fixed_profile,
         "steps_per_profile": args.steps_per_profile,
         "total_timesteps": total_timesteps,
@@ -496,6 +697,7 @@ def main() -> None:
             "gae_lambda": args.gae_lambda,
             "clip_range": args.clip_range,
             "value_coef": args.value_coef,
+            "vector_value_aux_coef": args.vector_value_aux_coef,
             "entropy_coef": args.entropy_coef,
             "max_grad_norm": args.max_grad_norm,
             **(

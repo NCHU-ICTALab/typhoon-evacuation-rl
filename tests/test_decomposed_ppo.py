@@ -9,7 +9,12 @@ from typhoon.decomposed_ppo import (
     compute_vector_gae,
     project_conflicting_gradients,
 )
-from typhoon.train_decomposed_ppo import update_policy
+from typhoon.train_decomposed_ppo import (
+    critic_loss_components,
+    preference_first_advantages,
+    single_clipped_surrogate,
+    update_policy,
+)
 
 
 def _space():
@@ -39,6 +44,71 @@ def test_vector_gae_keeps_objectives_separate_at_terminal():
     )
     assert np.allclose(advantages, rewards)
     assert np.allclose(returns, rewards)
+
+
+def test_preference_first_advantages_scalarize_before_one_normalization():
+    advantages = np.asarray(
+        [
+            [1.0, 8.0, -2.0],
+            [4.0, 2.0, 3.0],
+            [-1.0, 5.0, 7.0],
+        ],
+        dtype=np.float32,
+    )
+    preferences = np.asarray(
+        [
+            [0.70, 0.15, 0.15],
+            [0.15, 0.70, 0.15],
+            [0.15, 0.15, 0.70],
+        ],
+        dtype=np.float32,
+    )
+    scalar, contributions = preference_first_advantages(
+        advantages, preferences
+    )
+    raw_scalar = np.sum(advantages * preferences, axis=1)
+    expected = (raw_scalar - raw_scalar.mean()) / (
+        raw_scalar.std() + 1e-8
+    )
+
+    assert np.allclose(scalar, expected)
+    assert np.allclose(contributions.sum(axis=1), scalar)
+    assert np.isclose(scalar.mean(), 0.0, atol=1e-6)
+    assert np.isclose(scalar.std(), 1.0, atol=1e-6)
+
+
+def test_preference_first_surrogate_clips_the_scalar_advantage_once():
+    ratio = torch.tensor([1.3, 0.7, 1.1])
+    scalar_advantages = torch.tensor([1.0, -1.0, 2.0])
+    surrogate = single_clipped_surrogate(
+        ratio, scalar_advantages, clip_range=0.2
+    )
+
+    assert torch.allclose(surrogate, torch.tensor([1.2, -0.8, 2.2]))
+
+
+def test_preference_scalar_critic_keeps_vector_auxiliary_loss():
+    predicted = torch.tensor([[1.0, 2.0, 3.0], [0.0, 1.0, 2.0]])
+    returns = torch.tensor([[2.0, 2.0, 1.0], [1.0, 3.0, 2.0]])
+    preferences = torch.tensor(
+        [[0.15, 0.70, 0.15], [0.15, 0.15, 0.70]]
+    )
+    total, scalar, vector = critic_loss_components(
+        predicted,
+        returns,
+        preferences,
+        critic_mode="preference_scalar_aux",
+        vector_aux_coef=0.1,
+    )
+    expected_scalar = torch.nn.functional.mse_loss(
+        torch.sum(predicted * preferences, dim=1),
+        torch.sum(returns * preferences, dim=1),
+    )
+    expected_vector = torch.nn.functional.mse_loss(predicted, returns)
+
+    assert torch.allclose(scalar, expected_scalar)
+    assert torch.allclose(vector, expected_vector)
+    assert torch.allclose(total, expected_scalar + 0.1 * expected_vector)
 
 
 def test_decomposed_policy_has_three_values_and_respects_mask():
@@ -154,9 +224,17 @@ def test_pcgrad_projects_opposed_gradients_and_preserves_aligned_gradients():
     assert aligned_metrics["pcgrad_projection_fraction"] == 0.0
 
 
-@pytest.mark.parametrize("gradient_surgery", ["none", "pcgrad"])
+@pytest.mark.parametrize(
+    ("gradient_surgery", "surrogate_mode"),
+    [
+        ("none", "per_objective"),
+        ("pcgrad", "per_objective"),
+        ("none", "preference_first"),
+    ],
+)
 def test_one_decomposed_update_reports_objective_losses_and_cosines(
     gradient_surgery,
+    surrogate_mode,
 ):
     torch.manual_seed(3)
     model = DecomposedActorCritic(_space(), 31)
@@ -204,10 +282,12 @@ def test_one_decomposed_update_reports_objective_losses_and_cosines(
         max_grad_norm=0.5,
         rng=np.random.default_rng(3),
         gradient_surgery=gradient_surgery,
+        surrogate_mode=surrogate_mode,
     )
     assert set(("policy_loss_count", "policy_loss_gt", "policy_loss_risk")) <= set(
         metrics
     )
+    assert {"scalar_value_loss", "vector_value_loss"} <= set(metrics)
     assert set(
         (
             "gradient_cosine_count_gt",
@@ -218,6 +298,38 @@ def test_one_decomposed_update_reports_objective_losses_and_cosines(
     if gradient_surgery == "pcgrad":
         assert "pcgrad_projection_fraction" in metrics
     assert all(np.isfinite(value) for value in metrics.values())
+
+
+def test_preference_first_rejects_pcgrad():
+    model = DecomposedActorCritic(_space(), 31)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    rollout = VectorRollout(
+        observations=np.zeros((1, 1, 344), dtype=np.float32),
+        actions=np.zeros((1, 1), dtype=np.int64),
+        old_log_probs=np.zeros((1, 1), dtype=np.float32),
+        action_masks=np.ones((1, 1, 31), dtype=bool),
+        objective_rewards=np.zeros((1, 1, 3), dtype=np.float32),
+        values=np.zeros((1, 1, 3), dtype=np.float32),
+        dones=np.ones((1, 1), dtype=np.float32),
+        preferences=np.full((1, 1, 3), 1 / 3, dtype=np.float32),
+        advantages=np.zeros((1, 1, 3), dtype=np.float32),
+        returns=np.zeros((1, 1, 3), dtype=np.float32),
+    )
+    with pytest.raises(ValueError, match="PCGrad"):
+        update_policy(
+            model,
+            optimizer,
+            rollout,
+            epochs=1,
+            batch_size=1,
+            clip_range=0.2,
+            value_coef=0.5,
+            entropy_coef=0.01,
+            max_grad_norm=0.5,
+            rng=np.random.default_rng(3),
+            gradient_surgery="pcgrad",
+            surrogate_mode="preference_first",
+        )
 
 
 def test_decomposed_checkpoint_round_trip(tmp_path):

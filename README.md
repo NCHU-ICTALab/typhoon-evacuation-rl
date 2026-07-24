@@ -69,6 +69,18 @@ for profile in count balanced gt risk; do
 done
 .venv/bin/python -m typhoon.evaluate_decomposed_specialists --db data/ua1008l.sqlite --seed 42
 
+# Phase 7：preference-first scalar advantage + single PPO clipping
+for profile in count balanced gt risk; do
+  OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 .venv/bin/python -m typhoon.train_decomposed_ppo --db data/ua1008l.sqlite --steps-per-profile 100000 --seed 42 --batch-size 64 --fixed-profile "$profile" --surrogate-mode preference_first --skip-evaluation
+done
+.venv/bin/python -m typhoon.evaluate_decomposed_specialists --db data/ua1008l.sqlite --seed 42 --model-root typhoon/models/decomposed_ppo_preference_first_fixed_profiles --algorithm custom_decomposed_ppo_preference_first_fixed_profile
+
+# Phase 8：preference-scalarized critic + vector auxiliary loss
+for profile in count balanced gt risk; do
+  OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 .venv/bin/python -m typhoon.train_decomposed_ppo --db data/ua1008l.sqlite --steps-per-profile 100000 --seed 42 --batch-size 64 --fixed-profile "$profile" --surrogate-mode preference_first --critic-mode preference_scalar_aux --vector-value-aux-coef 0.1 --skip-evaluation
+done
+.venv/bin/python -m typhoon.evaluate_decomposed_specialists --db data/ua1008l.sqlite --seed 42 --model-root typhoon/models/decomposed_ppo_preference_first_scalar_critic_fixed_profiles --algorithm custom_decomposed_ppo_preference_first_scalar_critic_fixed_profile
+
 # 前端與 Python API
 .venv/bin/python -m typhoon.api
 ~~~
@@ -81,4 +93,10 @@ seed 42 結果分別見 [docs/PHASE3_PCGRAD.md](docs/PHASE3_PCGRAD.md) 與
 結果見 [docs/PHASE5_FULL_EXPERTS.md](docs/PHASE5_FULL_EXPERTS.md) 與
 [docs/PHASE5_RESULTS_SEED42.md](docs/PHASE5_RESULTS_SEED42.md)。Soft MoE 前置 gate 見
 [docs/PHASE6_FIXED_PROFILE_DIAGNOSTIC.md](docs/PHASE6_FIXED_PROFILE_DIAGNOSTIC.md) 與
-[docs/PHASE6_RESULTS_SEED42.md](docs/PHASE6_RESULTS_SEED42.md)。
+[docs/PHASE6_RESULTS_SEED42.md](docs/PHASE6_RESULTS_SEED42.md)。Preference-first surrogate 的
+技術契約與結果見
+[docs/PHASE7_PREFERENCE_FIRST_SURROGATE.md](docs/PHASE7_PREFERENCE_FIRST_SURROGATE.md) 與
+[docs/PHASE7_RESULTS_SEED42.md](docs/PHASE7_RESULTS_SEED42.md)。Preference-scalarized critic 的
+技術契約與結果見
+[docs/PHASE8_PREFERENCE_SCALAR_CRITIC.md](docs/PHASE8_PREFERENCE_SCALAR_CRITIC.md) 與
+[docs/PHASE8_RESULTS_SEED42.md](docs/PHASE8_RESULTS_SEED42.md)。

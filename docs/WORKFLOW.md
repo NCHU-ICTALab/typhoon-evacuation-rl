@@ -120,6 +120,31 @@ clipping；待 fixed-profile 恢復 GT、risk 2/4 後才重新考慮 soft MoE。
 
 建議訊息：`feat: add pre-MoE fixed-profile diagnostic`
 
+## Commit 11：Preference-first scalar surrogate（Phase 7 已完成）
+
+保留 vector critic、vector returns 與 vector GAE，但 actor 先依 transition preference 合成
+scalar advantage，再只做一次 normalization 與 PPO clipping。四個 fixed-profile models
+在 seed 42 的對角最佳由 1/4 提升為 2/4，count、GT 成功對角；risk 仍由 count model 最高，
+因此 soft MoE gate 尚未完全通過。完整結果見 `PHASE7_RESULTS_SEED42.md`。
+
+下一個最小實驗應保留 Phase 7 actor surrogate，改測 preference-scalarized critic loss 加小權重
+vector auxiliary loss。先只重跑 GT、risk；risk 恢復且 GT 不退步後，才重跑四偏好並考慮
+soft MoE。
+
+建議訊息：`feat: scalarize advantages before PPO clipping`
+
+## Commit 12：Preference-scalarized critic（Phase 8 已完成）
+
+在 Phase 7 actor surrogate 上，將 critic 主 loss 改成 preference-scalarized value MSE，並保留
+0.1 倍 vector MSE auxiliary loss。四個 fixed-profile models 的 utility 全部提升；GT、risk
+恢復各自 cross-utility 對角最佳，達成舊 SB3 specialists 的 2/2 gate。完整結果見
+`PHASE8_RESULTS_SEED42.md`。
+
+Expert gate 已通過，下一步可加入 soft MoE：以 Phase 8 experts 初始化，先凍結 experts 訓練
+router，再以小 learning rate joint fine-tune；評估需加入 centroid 間的連續偏好。
+
+建議訊息：`feat: align vector critic with preference utility`
+
 ## 整體 MORL 訓練完成後：30 艘容量與部署待辦
 
 目前實驗繼續固定 30 艘，以免在 MORL 演算法比較期間同時改變 observation、action space 與

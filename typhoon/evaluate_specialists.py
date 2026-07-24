@@ -75,6 +75,7 @@ def evaluate_specialists(
     diagonal_best = {
         eval_profile: max(values, key=values.get) == eval_profile
         for eval_profile, values in cross_utility.items()
+        if eval_profile in models
     }
     return {
         "profiles": PREFERENCE_PROFILES,

@@ -28,6 +28,18 @@ def main() -> None:
         / "decomposed_ppo_fixed_profiles",
     )
     parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument(
+        "--algorithm",
+        default="custom_decomposed_ppo_fixed_profile",
+        help="Label stored in the comparison report.",
+    )
+    parser.add_argument(
+        "--profiles",
+        nargs="+",
+        choices=tuple(PREFERENCE_PROFILES),
+        default=list(PREFERENCE_PROFILES),
+        help="Subset of fixed-profile models to load.",
+    )
     args = parser.parse_args()
 
     dates = available_scenario_dates(args.db, min_vessels=30)
@@ -41,10 +53,10 @@ def main() -> None:
         profile: DecomposedActorCritic.load(
             args.model_root / profile / f"seed-{args.seed}" / "final.pt"
         )
-        for profile in PREFERENCE_PROFILES
+        for profile in args.profiles
     }
     report = evaluate_specialists(models, scenarios)
-    report["algorithm"] = "custom_decomposed_ppo_fixed_profile"
+    report["algorithm"] = args.algorithm
     report["seed"] = args.seed
     output = args.output or args.model_root / f"comparison-seed-{args.seed}.json"
     output.parent.mkdir(parents=True, exist_ok=True)
