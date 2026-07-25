@@ -183,6 +183,36 @@ delta +0.001626、最差 -0.000813，通過 pilot frontend gate。詳見
 
 建議訊息：`feat: train continuous soft MoE router with PPO`
 
+## Commit 16：Phase 10 偏好單調性（tie-aware 解碼 + router 單調性正則）
+
+針對連續／實驗性偏好下「提高 GT 權重、撤離 GT 反而下降」的異常。Phase 9B baseline 在三個
+simplex edge 上相鄰非單調率 15.4%、端點反轉率 28.3%（`monotonicity_gate=false`）。
+
+修復 1（已實作）：`decode_tie_eps` tie-aware 解碼，以偏好加權 GT/risk 分數破並列；經測在此
+checkpoint 幾乎不動異常（端點反轉 17→16/60），因為真正選擇點的 top1-top2 機率 gap 中位數
+0.61、近似並列僅 1.3%——是 confident-but-non-monotone routing，不是 tie。tie-aware 解碼保留
+為安全的第一道防線。
+
+修復 2（router 單調性正則）：experts 凍結下，偏好只透過 routing weights 影響混合，故在
+argmax 前的可微機率上加懲罰（hinge 與 ranking 兩種）——提高目標 j 權重卻降低期望 j 目標時
+受罰。只更新 router 與 critic。
+
+**結果為負但根因收斂**：tie-aware 解碼、hinge 正則、ranking 正則三者都沒改善 deterministic
+軌跡單調性（端點反轉維持 28.3%），但 GT/risk 2/2 gate、safety 0、grid 平均 utility 均維持。
+診斷確認期望目標（連續）與 argmax 軌跡（離散）解耦、且四個 frozen experts 分化不足
+（evac_GT spread 僅 5%），因此 router-level lever 無法修復；真正 lever 為重蒸餾／分離
+experts，屬 Phase 11 範疇。Phase 10 交付診斷工具與兩個 router lever，Phase 9B 仍為前端預設。
+完整設計、公式、超參數、負結果與根因見
+[PHASE10_PREFERENCE_MONOTONICITY.md](PHASE10_PREFERENCE_MONOTONICITY.md)。
+
+建議訊息：`feat: add soft-MoE monotonicity diagnostics and router regularizer`
+
+## 下一階段規劃（Phase 11–13）
+
+競爭力（對 value-density 的最佳化上限與 greedy-competitive 訓練）、多 seed／細 grid／CI 的
+正式驗收 gate、以及服務化／數位孿生整合契約，均移至
+[PHASE11_13_ROADMAP.md](PHASE11_13_ROADMAP.md)，不再展開於本文件。
+
 ## 整體 MORL 訓練完成後：30 艘容量與部署待辦
 
 目前實驗繼續固定 30 艘，以免在 MORL 演算法比較期間同時改變 observation、action space 與

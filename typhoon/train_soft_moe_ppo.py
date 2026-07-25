@@ -136,6 +136,56 @@ def make_continuous_preference_envs(
     return DummyVecEnv(factories)
 
 
+def router_monotonicity_loss(
+    model: SoftMoEActorCritic,
+    observations: torch.Tensor,
+    action_masks: torch.Tensor,
+    preferences: torch.Tensor,
+    *,
+    delta: float,
+    mode: str = "ranking",
+    scale: float = 40.0,
+) -> torch.Tensor:
+    """Penalize routing that lowers an objective when its weight is raised.
+
+    With frozen experts the preference only reaches the action mixture through
+    the router weights, so monotonicity is enforced directly on the router's
+    differentiable output. For each objective ``j`` the transition preference is
+    nudged up on ``j`` and renormalized to ``w'``; the expected objective ``E_j``
+    should not fall from ``w`` to ``w'``. Experts and the objective proxy carry
+    no gradient.
+
+    ``mode="hinge"`` uses ``relu(E_j - E_j')`` — simple but magnitude-dominated:
+    when the router barely responds to the preference the differences are tiny
+    and the gradient vanishes even though the *sign* is wrong. ``mode="ranking"``
+    uses ``softplus(scale * (E_j - E_j'))``, whose gradient stays non-zero at a
+    zero difference, so it drives a positive monotone margin regardless of
+    magnitude. ``scale`` sets how sharply it approaches the hinge.
+    """
+    expected = model.expert_expected_objectives(observations, action_masks)
+    routing = torch.softmax(model.routing_logits(observations), dim=-1)
+    loss = observations.new_zeros(())
+    for j in range(3):
+        bumped = preferences.clone()
+        bumped[:, j] = bumped[:, j] + delta
+        bumped = bumped / bumped.sum(dim=-1, keepdim=True).clamp_min(1e-9)
+        bumped_observations = observations.clone()
+        bumped_observations[:, -3:] = bumped
+        routing_bumped = torch.softmax(
+            model.routing_logits(bumped_observations), dim=-1
+        )
+        expected_j = (routing * expected[:, :, j]).sum(dim=-1)
+        expected_bumped_j = (routing_bumped * expected[:, :, j]).sum(dim=-1)
+        gap = expected_j - expected_bumped_j
+        if mode == "hinge":
+            loss = loss + torch.relu(gap).mean()
+        elif mode == "ranking":
+            loss = loss + torch.nn.functional.softplus(scale * gap).mean() / scale
+        else:
+            raise ValueError("monotonicity mode must be 'hinge' or 'ranking'")
+    return loss / 3.0
+
+
 def update_router_policy(
     model: SoftMoEActorCritic,
     optimizer: torch.optim.Optimizer,
@@ -149,6 +199,10 @@ def update_router_policy(
     entropy_coef: float,
     router_anchor_coef: float,
     router_anchor_temperature: float,
+    monotonicity_coef: float = 0.0,
+    monotonicity_delta: float = 0.1,
+    monotonicity_mode: str = "ranking",
+    monotonicity_scale: float = 40.0,
     max_grad_norm: float,
     rng: np.random.Generator,
 ) -> dict[str, float]:
@@ -159,6 +213,8 @@ def update_router_policy(
         raise ValueError("epochs and batch_size must be positive")
     if router_anchor_coef < 0.0:
         raise ValueError("router_anchor_coef must be non-negative")
+    if monotonicity_coef < 0.0:
+        raise ValueError("monotonicity_coef must be non-negative")
 
     count = math.prod(rollout.actions.shape)
     observations = rollout.observations.reshape(count, -1)
@@ -238,11 +294,24 @@ def update_router_policy(
                 dim=-1,
             ).mean()
             entropy_loss = -action_entropy.mean()
+            if monotonicity_coef > 0.0:
+                monotonicity = router_monotonicity_loss(
+                    model,
+                    batch_observations,
+                    tensors["action_masks"][batch],
+                    tensors["preferences"][batch],
+                    delta=monotonicity_delta,
+                    mode=monotonicity_mode,
+                    scale=monotonicity_scale,
+                )
+            else:
+                monotonicity = predicted_values.new_zeros(())
             loss = (
                 policy_loss
                 + value_coef * value_loss
                 + entropy_coef * entropy_loss
                 + router_anchor_coef * router_anchor_loss
+                + monotonicity_coef * monotonicity
             )
 
             optimizer.zero_grad()
@@ -276,6 +345,9 @@ def update_router_policy(
             )
             metrics["router_anchor_loss"].append(
                 float(router_anchor_loss.detach().cpu())
+            )
+            metrics["monotonicity_loss"].append(
+                float(monotonicity.detach().cpu())
             )
             metrics["approximate_kl"].append(float(approximate_kl.cpu()))
             metrics["clip_fraction"].append(float(clip_fraction.cpu()))
@@ -324,6 +396,12 @@ def main() -> None:
     parser.add_argument("--entropy-coef", type=float, default=0.005)
     parser.add_argument("--router-anchor-coef", type=float, default=0.01)
     parser.add_argument("--router-anchor-temperature", type=float, default=0.02)
+    parser.add_argument("--monotonicity-coef", type=float, default=0.0)
+    parser.add_argument("--monotonicity-delta", type=float, default=0.1)
+    parser.add_argument(
+        "--monotonicity-mode", choices=("hinge", "ranking"), default="ranking"
+    )
+    parser.add_argument("--monotonicity-scale", type=float, default=40.0)
     parser.add_argument("--anchor-fraction", type=float, default=0.5)
     parser.add_argument("--dirichlet-alpha", type=float, default=0.7)
     parser.add_argument("--max-grad-norm", type=float, default=0.5)
@@ -405,6 +483,10 @@ def main() -> None:
             entropy_coef=args.entropy_coef,
             router_anchor_coef=args.router_anchor_coef,
             router_anchor_temperature=args.router_anchor_temperature,
+            monotonicity_coef=args.monotonicity_coef,
+            monotonicity_delta=args.monotonicity_delta,
+            monotonicity_mode=args.monotonicity_mode,
+            monotonicity_scale=args.monotonicity_scale,
             max_grad_norm=args.max_grad_norm,
             rng=rng,
         )
@@ -459,6 +541,10 @@ def main() -> None:
             "entropy_coef": args.entropy_coef,
             "router_anchor_coef": args.router_anchor_coef,
             "router_anchor_temperature": args.router_anchor_temperature,
+            "monotonicity_coef": args.monotonicity_coef,
+            "monotonicity_delta": args.monotonicity_delta,
+            "monotonicity_mode": args.monotonicity_mode,
+            "monotonicity_scale": args.monotonicity_scale,
             "max_grad_norm": args.max_grad_norm,
         },
         "routing_before": routing_before,

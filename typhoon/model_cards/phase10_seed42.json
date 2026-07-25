@@ -1,0 +1,53 @@
+{
+  "available": true,
+  "phase": "10_preference_monotonicity",
+  "seed": 42,
+  "steps_per_profile": 25000,
+  "total_rl_transitions": 100000,
+  "paired_base_cases": 60,
+  "experts_frozen": true,
+  "trainable": ["preference_router", "state_router", "vector_critic"],
+  "objective": "reduce preference non-monotonicity in continuous routing",
+  "delivered": [
+    "tie_aware_decoding (decode_tie_eps)",
+    "expert_expected_objectives api",
+    "router_monotonicity_loss (hinge + ranking)",
+    "evaluate_preference_monotonicity diagnostic"
+  ],
+  "diagonal_best": {
+    "count": false,
+    "balanced": false,
+    "gt": true,
+    "risk": true
+  },
+  "diagonal_best_count": 2,
+  "gt_risk_gate": true,
+  "safety_violations": 0,
+  "rejected_actions": 0,
+  "monotonicity": {
+    "phase9b_baseline_adjacent_violation_rate": 0.154,
+    "phase9b_baseline_endpoint_inversion_rate": 0.283,
+    "tie_aware_endpoint_inversion_rate": 0.283,
+    "router_hinge_adjacent_violation_rate": 0.153,
+    "router_hinge_endpoint_inversion_rate": 0.283,
+    "router_ranking_adjacent_violation_rate": 0.161,
+    "router_ranking_endpoint_inversion_rate": 0.283,
+    "monotonicity_gate": false,
+    "expected_immediate_gt_violation_rate_on_heldout_states": 0.523
+  },
+  "grid_delta_vs_phase9b": {
+    "hinge_mean_utility_delta": 0.000578,
+    "ranking_mean_utility_delta": 0.000477,
+    "safety_violations": 0,
+    "rejected_actions": 0
+  },
+  "accepted_for_frontend": false,
+  "result": "negative",
+  "limitations": [
+    "Neither tie-aware decoding nor router-level monotonicity regularization reduced the deterministic-trajectory monotonicity violations; the gate remains false.",
+    "Root cause localized: the expected (soft) objective and the discrete argmax trajectory are decoupled, and the four frozen experts are under-separated (evacuated-GT spread ~5%), so a monotone expected objective does not yield a monotone realized KPI.",
+    "The real fix requires expert re-separation (Phase 11) or trajectory-level preference-aware decoding, not frozen-router regularization.",
+    "This checkpoint is a diagnostic artifact and is not accepted for the frontend; Phase 9B remains the experimental continuous-preference default.",
+    "Single seed, 100k transitions, synthetic weather/resources, fixed 30-vessel observation contract."
+  ]
+}
