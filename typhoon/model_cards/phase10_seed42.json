@@ -4,6 +4,11 @@
   "seed": 42,
   "steps_per_profile": 25000,
   "total_rl_transitions": 100000,
+  "checkpoint": {
+    "relative_path": "models/soft_moe_router_monotone/seed-42/final.pt",
+    "size_bytes": 7514787,
+    "sha256": "e6abde454606082b51ef88e5da503a5be4505ec088469ffaf86b30ff6ae0dbf5"
+  },
   "paired_base_cases": 60,
   "experts_frozen": true,
   "trainable": ["preference_router", "state_router", "vector_critic"],

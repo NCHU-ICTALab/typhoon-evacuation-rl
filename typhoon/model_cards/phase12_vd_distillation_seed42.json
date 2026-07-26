@@ -17,7 +17,8 @@
   "diagnosis": "behavior-cloning covariate shift: 97-98% per-step imitation still trails value_density ~10% closed-loop because the small errors land on decisive tight-closure dispatches and compound; DAgger only marginally closes it; the router/mixture is clean (standalone expert == mixture).",
   "verdict": {
     "neural_can_cleanly_match_value_density": false,
-    "recommendation": "serve value_density directly behind the preference/safety/Pareto contract; it already satisfies all four desiderata and is within 1-3% of the strict optimum",
+    "recommendation": "retain value_density as an offline teacher and benchmark; do not include it in the RL-only service Pareto set",
+    "project_service_goal": "serve multi-preference Pareto candidates produced by RL policies",
     "neural_line_revisit_when": "the environment gains non-myopic structure (real berth/service times via ServiceTimeSource), where greedy is no longer near-optimal; the BC/DAgger pipeline then serves as an RL warm-start"
   },
   "checkpoints_written": [

@@ -231,18 +231,19 @@ cloning + `train_dagger.py` 的 DAgger），全部寫入新目錄。
 **定案（負結果，方向明確）**：BC 達 97–98% 每步模仿正確率，但 closed-loop utility 仍落後 VD
 ~10%（covariate shift，誤差落在封港緊迫關鍵派船並沿軌跡放大）；DAgger 只縮小一點（仍差
 ~9–13%），單調性也未回到 VD 的 0/60。診斷確認 router／混合乾淨（standalone expert == 混合），
-差距全在模仿本身。結論：在現有近可分離環境，**任何神經策略（RL／BC／DAgger）都無法乾淨追平
-VD**；而 VD 本身已滿足四個目標條件且近最佳，故正解是**直接服務 VD**。neural 路線延後至真實
-service time 到位（`ServiceTimeSource`）、環境具非短視結構時，屆時 BC/DAgger 可當 warm-start。
+差距全在模仿本身。這證明目前 neural checkpoint 尚不能追平 VD，但不改變專案的 RL 服務目標。
+**服務候選仍必須是 RL 產生的多偏好／多 Pareto 排程**；VD 只作 teacher／benchmark，不混入
+`pareto_rl`。真實 service time 到位後，BC/DAgger pipeline 可當 preference-conditioned PPO 的
+warm-start。
 詳見 [PHASE12_VD_DISTILLATION.md](PHASE12_VD_DISTILLATION.md)。
 
 建議訊息：`feat: distill value-density and settle the servable-policy question`
 
-## 下一階段規劃（Phase 12–13）
+## 下一階段規劃（Phase 13）
 
-多 seed／細 grid／CI 的正式驗收 gate 與服務化／數位孿生整合契約見
-[PHASE11_13_ROADMAP.md](PHASE11_13_ROADMAP.md)。Phase 11 的 oracle 已完成；若要追平 VD，
-後續為 value-density warm-start + 較長訓練 + 多 seed，以 per-case regret vs oracle 驗收。
+服務化／數位孿生整合契約見 [PHASE13_DIGITAL_TWIN.md](PHASE13_DIGITAL_TWIN.md)。第一版採
+固定 30 艘的 stateless receding-horizon snapshot，回傳 RL-only Pareto 排程與各候選下一步；
+後續再加入 active operations、可變船數、多 seed／細 grid／CI 的正式驗收 gate。
 
 ## 整體 MORL 訓練完成後：30 艘容量與部署待辦
 

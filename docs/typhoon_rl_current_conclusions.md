@@ -25,9 +25,10 @@ regret 為 11–16%、四種偏好全數落後 value-density 約 10–13%。因�
 
 **Phase 12 進一步確認**（`docs/PHASE12_VD_DISTILLATION.md`）：試圖把 VD 蒸餾成可服務的神經
 checkpoint（behavior cloning 與 DAgger）皆無法乾淨追平 VD——BC 達 97–98% 每步模仿正確率但
-closed-loop 仍差 ~10%（covariate shift），DAgger 只縮小一點。由於 VD 本身已滿足「可服務、
-連續偏好、安全、Pareto」四個條件且近最佳，對此目標的正解是**直接服務 value-density**；神經
-路線延後至真實 service time 到位、環境具非短視結構時，屆時蒸餾 pipeline 可當 RL warm-start。
+closed-loop 仍差 ~10%（covariate shift），DAgger 只縮小一點。這是訓練診斷，不是服務策略
+定案。專案目標現已更正為 **RL 多偏好／多 Pareto 排程服務**：VD 僅作 teacher 與 benchmark，
+不得混入 RL-only Pareto 候選；Phase 8／9B 保留為 PoC，後續以真實 service time、trajectory
+層級訓練／搜尋與多 seed gate 改善。
 
 ## 二、風險加權效用是什麼
 
@@ -126,6 +127,7 @@ Phase 9B 另提供預設關閉的連續偏好控制。它是四個 frozen expert
 
 ## 七、後續工作
 
+- 以 Phase 13 snapshot 契約把 RL Pareto 集接入數位孿生；規則基線只留在研究比較端點；
 - 以多個訓練 seed 確認偏好反應與結果穩定性；
 - 加入 GT-aware 基線（最佳化上限已於 Phase 11 完成，見 `PHASE11_COMPETITIVENESS.md`）；
 - 將合成風險 proxy 替換為危險品、吃水、主機狀態等正式欄位；

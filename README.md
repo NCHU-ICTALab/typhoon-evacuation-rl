@@ -7,6 +7,10 @@
 > 本系統不發布封港命令，也不取代港長、VTS、引水人或船長。現有氣象、資源與風險欄位
 > 含合成研究假設，只能用於演算法與流程展示。
 
+本專案的服務目標是由 **RL 產生多個偏好特化的 Pareto 排程候選**，讓操作人員或數位孿生
+選擇，而不是把 Value-density 規則直接當成正式主策略。Value-density、FCFS 與 Risk-aware
+保留為離線評估基準；數位孿生的 RL 端點不會把規則候選混入 RL Pareto 集。
+
 ## 應用情境
 
 一般交通量下，固定規則通常已能完成大部分排程；RL 的價值主要出現在封港倒數、資源不足、
@@ -68,8 +72,14 @@ action mask 會在 expert 內與混合後各套用一次。
 每點 60 組 held-out cases 上，相較未經 RL 更新的 router 為 4 點改善、9 點持平、2 點小幅退步；
 平均 utility delta 為 `+0.001626`，安全違規與 rejected actions 都是 0。
 
-這只證明單一 seed 的連續偏好 router 已能改變排程並保有安全 gate，不代表 RL 已全面勝過
-FCFS、Risk-aware 或 Value-density，也不是正式港務成效。
+Phase 11 的最佳化 oracle 顯示 Value-density 在目前近可分離的合成環境已距上限約 1–3%，而
+Phase 9B RL 仍落後約 10–13%；Phase 12 的 BC／DAgger 也沒有消除 closed-loop 差距。這些結果
+用來界定 RL 的訓練缺口，**不代表服務策略改成 Value-density**。目前可提供的是有明確限制標示
+的 RL Pareto PoC；正式驗收仍需多 seed、偏好單調性改善與真實 service-time 資料。
+
+Phase 13 已開始提供數位孿生 snapshot 契約，並使用最新 Phase 10 reward-trained Soft MoE：固定 30 艘、時區明確的 `observed_at`／
+`closure_at`、船舶整備與 service time、拖船與入口容量。呼叫端可取得完整 RL Pareto 排程，
+或每個 Pareto 候選的下一步動作；VD 不在此端點的候選集合中。
 
 ## 快速開始
 
@@ -94,10 +104,15 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 TYPHOON_DB_PATH=/path/to/ua1008l.sqlite \
 啟動後開啟 `http://127.0.0.1:8765`。前端預設使用四個離散 expert 的穩定路徑；開啟
 「實驗性連續偏好」後，才會使用 PPO-trained Soft MoE router。
 
+數位孿生能力宣告位於 `GET /api/typhoon/digital-twin/capabilities`；RL-only 完整 Pareto
+排程與 receding-horizon 下一步建議分別使用 `POST /api/typhoon/digital-twin/pareto` 與
+`POST /api/typhoon/digital-twin/step`。契約與目前不支援的狀態見
+[docs/PHASE13_DIGITAL_TWIN.md](docs/PHASE13_DIGITAL_TWIN.md)。
+
 ## 專案內容
 
 ~~~text
-typhoon/       環境、RL、規則基線、API 與前端
+typhoon/       環境、RL、數位孿生契約、規則基線、API 與前端
 tests/         action mask、PPO、router、API 與資料契約測試
 docs/          實驗規約、結果與研究歷程
 data/          本機唯讀資料說明；資料本身不進 Git
