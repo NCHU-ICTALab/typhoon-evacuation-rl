@@ -27,6 +27,11 @@ value-density 是 preference-aware 貪婪 heuristic（依 `dispatch_value / tran
 （`count/N + GT/total + risk/total`），耦合只來自拖船、入口與封港硬限制，這種近似 knapsack
 的問題本來就對貪婪有利。
 
+> **更新（已完成）**：步驟一的嚴格 oracle 已實作並定案，見
+> [PHASE11_COMPETITIVENESS.md](PHASE11_COMPETITIVENESS.md)。結論：value-density 近全域最佳
+> （regret 1–3%），RL 落後 VD 約 10–13%。因此走「VD ≈ oracle」分支——目標改為在 CI 內追平
+> VD（步驟二的 warm-start／多 seed），不追求勝過。以下保留原始規劃脈絡。
+
 ### 步驟一：先量出最佳化上限（決定 RL 是否有空間）
 
 deterministic 情境（`randomize=False`、固定 jitter seed）是完全已知的有限排程問題。對每個

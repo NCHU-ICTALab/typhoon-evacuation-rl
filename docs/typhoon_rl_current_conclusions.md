@@ -14,6 +14,21 @@ Phase 9B 單一 Soft MoE checkpoint、規則基線與離線 Pareto 前端。API 
 這不是異常，而是多目標排程的正常現象：艘數、GT、風險點會互相競爭，專門針對單一
 目標的規則可能位於 Pareto 前緣，RL 不可能被合理要求在所有原始指標上同時嚴格勝出。
 
+**Phase 11 已用嚴格 oracle 給出競爭力定案**（`docs/PHASE11_COMPETITIVENESS.md`）：以
+branch-and-bound 求「最大權重可排程子集」的最佳化上限後，確認 value-density 在此近可分離的
+合成環境中**已接近全域最佳**（proven case 上 regret 僅 1–3%），而 Phase 9B RL 對最佳解的
+regret 為 11–16%、四種偏好全數落後 value-density 約 10–13%。因此 Goal 2 的正確口徑是
+「**在 CI 內追平 value-density**」而非勝過：打平為良置且原則上可達（天花板在 VD 之上），但需
+訓練層面改動（VD warm-start、更長 steps、多 seed），非再調 router；勝過 VD 在現有環境幾乎
+不可能（平均僅 1–3% headroom，集中於封港緊迫 case）。RL 要相對貪婪顯現優勢，需真實靠泊／
+離泊 service time 帶來的非短視結構，此為 Goal 2 的硬邊界。
+
+**Phase 12 進一步確認**（`docs/PHASE12_VD_DISTILLATION.md`）：試圖把 VD 蒸餾成可服務的神經
+checkpoint（behavior cloning 與 DAgger）皆無法乾淨追平 VD——BC 達 97–98% 每步模仿正確率但
+closed-loop 仍差 ~10%（covariate shift），DAgger 只縮小一點。由於 VD 本身已滿足「可服務、
+連續偏好、安全、Pareto」四個條件且近最佳，對此目標的正解是**直接服務 value-density**；神經
+路線延後至真實 service time 到位、環境具非短視結構時，屆時蒸餾 pipeline 可當 RL warm-start。
+
 ## 二、風險加權效用是什麼
 
 它不是新的氣象或航安量測，而是方便訓練和配對比較的合成分數。令：
@@ -112,7 +127,7 @@ Phase 9B 另提供預設關閉的連續偏好控制。它是四個 frozen expert
 ## 七、後續工作
 
 - 以多個訓練 seed 確認偏好反應與結果穩定性；
-- 加入 GT-aware 基線及最佳化上限；
+- 加入 GT-aware 基線（最佳化上限已於 Phase 11 完成，見 `PHASE11_COMPETITIVENESS.md`）；
 - 將合成風險 proxy 替換為危險品、吃水、主機狀態等正式欄位；
 - 重跑 Phase 9B seeds 43、44，並以 0.1 preference grid 加入 bootstrap CI 與 regret；
 - 多 seed 通過後才延長 steps 或以小 learning rate joint fine-tune；

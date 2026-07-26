@@ -207,11 +207,42 @@ experts，屬 Phase 11 範疇。Phase 10 交付診斷工具與兩個 router leve
 
 建議訊息：`feat: add soft-MoE monotonicity diagnostics and router regularizer`
 
-## 下一階段規劃（Phase 11–13）
+## Commit 17：Phase 11 競爭力定案（嚴格 oracle）
 
-競爭力（對 value-density 的最佳化上限與 greedy-competitive 訓練）、多 seed／細 grid／CI 的
-正式驗收 gate、以及服務化／數位孿生整合契約，均移至
-[PHASE11_13_ROADMAP.md](PHASE11_13_ROADMAP.md)，不再展開於本文件。
+以 branch-and-bound 求「最大權重可排程子集」的嚴格最佳化上限（`evaluate_oracle.py`），把
+Goal 2 從方向性推測變成定論。60 paired held-out cases × 4 centroids：value-density 在 proven
+case 上對 oracle 的 regret 僅 1–3%（近全域最佳），而 Phase 9B RL regret 11–16%、四種偏好全數
+落後 VD 約 10–13%。
+
+定案：**「追平 value-density」良置且原則可達**（天花板在 VD 之上，VD 又在 RL 之上），但需訓練
+層面改動（VD warm-start／更長 steps／多 seed），非再調 router；**「勝過 VD」在現有近可分離的
+合成環境幾乎不可能**（平均僅 1–3% headroom）。RL 相對貪婪的優勢需真實 service time 帶來的
+非短視結構（`ServiceTimeSource`，資料源尚未到位）——此為 Goal 2 硬邊界。完整表格與結論見
+[PHASE11_COMPETITIVENESS.md](PHASE11_COMPETITIVENESS.md)。
+
+建議訊息：`feat: add strict optimization oracle and competitiveness verdict`
+
+## Commit 18：Phase 12 VD 蒸餾與服務化定案
+
+目標：可服務的單一 checkpoint，乾淨追平 value-density(VD) + 連續偏好 + 安全 + Pareto，且不覆蓋
+現有 checkpoint。做法：把近最佳的 VD 蒸餾進 soft-MoE（`train_behavior_clone.py` 的 behavior
+cloning + `train_dagger.py` 的 DAgger），全部寫入新目錄。
+
+**定案（負結果，方向明確）**：BC 達 97–98% 每步模仿正確率，但 closed-loop utility 仍落後 VD
+~10%（covariate shift，誤差落在封港緊迫關鍵派船並沿軌跡放大）；DAgger 只縮小一點（仍差
+~9–13%），單調性也未回到 VD 的 0/60。診斷確認 router／混合乾淨（standalone expert == 混合），
+差距全在模仿本身。結論：在現有近可分離環境，**任何神經策略（RL／BC／DAgger）都無法乾淨追平
+VD**；而 VD 本身已滿足四個目標條件且近最佳，故正解是**直接服務 VD**。neural 路線延後至真實
+service time 到位（`ServiceTimeSource`）、環境具非短視結構時，屆時 BC/DAgger 可當 warm-start。
+詳見 [PHASE12_VD_DISTILLATION.md](PHASE12_VD_DISTILLATION.md)。
+
+建議訊息：`feat: distill value-density and settle the servable-policy question`
+
+## 下一階段規劃（Phase 12–13）
+
+多 seed／細 grid／CI 的正式驗收 gate 與服務化／數位孿生整合契約見
+[PHASE11_13_ROADMAP.md](PHASE11_13_ROADMAP.md)。Phase 11 的 oracle 已完成；若要追平 VD，
+後續為 value-density warm-start + 較長訓練 + 多 seed，以 per-case regret vs oracle 驗收。
 
 ## 整體 MORL 訓練完成後：30 艘容量與部署待辦
 

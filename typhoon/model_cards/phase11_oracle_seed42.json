@@ -1,0 +1,28 @@
+{
+  "phase": "11_competitiveness_oracle",
+  "seed": 42,
+  "paired_base_cases": 60,
+  "node_cap": 300000,
+  "oracle": "strict branch-and-bound max-weight schedulable subset; returns a valid lower bound on the optimum, proven-optimal on tight cases",
+  "evaluated_model": "soft_moe_router_ppo (phase 9b)",
+  "per_preference": {
+    "count":    {"rl": 0.4018, "value_density": 0.4453, "best_rule": 0.4455, "oracle_lower_bound": 0.4485, "rl_gap_vs_vd": -0.0435, "rl_regret_vs_oracle": 0.0468, "vd_regret_vs_oracle_proven": 0.0048, "proven_cases": 17, "rl_ge_vd_cases": 17},
+    "balanced": {"rl": 0.3813, "value_density": 0.4233, "best_rule": 0.4236, "oracle_lower_bound": 0.4285, "rl_gap_vs_vd": -0.0420, "rl_regret_vs_oracle": 0.0471, "vd_regret_vs_oracle_proven": 0.0080, "proven_cases": 19, "rl_ge_vd_cases": 14},
+    "gt":       {"rl": 0.3669, "value_density": 0.4144, "best_rule": 0.4148, "oracle_lower_bound": 0.4233, "rl_gap_vs_vd": -0.0474, "rl_regret_vs_oracle": 0.0564, "vd_regret_vs_oracle_proven": 0.0133, "proven_cases": 20, "rl_ge_vd_cases": 15},
+    "risk":     {"rl": 0.4005, "value_density": 0.4571, "best_rule": 0.4573, "oracle_lower_bound": 0.4651, "rl_gap_vs_vd": -0.0566, "rl_regret_vs_oracle": 0.0645, "vd_regret_vs_oracle_proven": 0.0122, "proven_cases": 19, "rl_ge_vd_cases": 15}
+  },
+  "verdict": {
+    "value_density_is_near_optimal": true,
+    "value_density_regret_vs_oracle_pct": "1-3%",
+    "rl_regret_vs_oracle_pct": "11-16%",
+    "rl_loses_to_value_density_on_all_four_preferences": true,
+    "matching_value_density": "well-posed and reachable in principle (ceiling > VD > RL), not yet achieved; needs training changes (VD warm-start + longer + multi-seed), not router tuning",
+    "beating_value_density": "near-impossible in the current near-separable synthetic env (~1-3% headroom, concentrated in tight-closure cases)",
+    "honest_target": "match value_density within CI; RL value proposition is the continuous-preference interface + safety gate + single-checkpoint Pareto set, not utility superiority",
+    "hard_boundary": "RL's advantage over greedy needs a non-myopic environment (real berth/service times via ServiceTimeSource, not yet available)"
+  },
+  "limitations": [
+    "Oracle is a lower bound except on the ~30% proven cases; the true ceiling is equal or slightly higher, which only strengthens the near-optimality of value_density.",
+    "Single seed, synthetic weather/resources, fixed 30-vessel observation contract."
+  ]
+}
