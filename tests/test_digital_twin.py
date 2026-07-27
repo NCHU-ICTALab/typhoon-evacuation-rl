@@ -115,7 +115,7 @@ def test_rl_pareto_service_contains_no_rule_candidates():
     assert all(candidate["method"] == "rl" for candidate in result["rl_candidates"])
     assert all(
         candidate["policy_source"]
-        == "phase10-monotonicity-regularized-soft-moe"
+        == "phase14-vd-warmstart-preference-ppo"
         for candidate in result["rl_candidates"]
     )
     assert result["model"]["family"] == result["rl_candidates"][0]["policy_source"]
@@ -140,12 +140,12 @@ def test_capabilities_and_step_endpoint(monkeypatch):
     health = client.get("/api/typhoon/digital-twin/health")
     assert health.status_code == 200
     assert health.json()["model_family"] == (
-        "phase10-monotonicity-regularized-soft-moe"
+        "phase14-vd-warmstart-preference-ppo"
     )
     assert health.json()["observation_size"] == 344
     assert health.json()["actions"] == 31
     assert health.json()["model_sha256"] == (
-        "e6abde454606082b51ef88e5da503a5be4505ec088469ffaf86b30ff6ae0dbf5"
+        "885a53e59cddfb173bcd5a8af1c9c75ac06d91ec60073fd9d93fd366a4407fb0"
     )
 
     response = client.post(
