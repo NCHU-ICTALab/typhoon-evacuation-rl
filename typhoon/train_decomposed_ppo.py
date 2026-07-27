@@ -204,6 +204,7 @@ def update_policy(
     surrogate_mode: str = "per_objective",
     critic_mode: str = "vector_equal",
     vector_value_aux_coef: float = 0.1,
+    detach_critic_extractor: bool = False,
 ) -> dict:
     assert rollout.advantages is not None and rollout.returns is not None
     if gradient_surgery not in {"none", "pcgrad"}:
@@ -282,6 +283,11 @@ def update_policy(
                 tensors["actions"][batch],
                 tensors["action_masks"][batch],
             )
+            if detach_critic_extractor:
+                critic_features = model._features(
+                    tensors["observations"][batch]
+                ).detach()
+                predicted_values = model.critic(critic_features)
             ratio = torch.exp(log_prob - tensors["old_log_probs"][batch])
             batch_advantages = tensors["advantages"][batch]
             clipped_ratio = torch.clamp(

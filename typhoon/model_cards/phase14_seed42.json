@@ -1,0 +1,99 @@
+{
+  "gate_version": "phase10_relative_preference_specialization_v1",
+  "reference_evaluation": "typhoon/models/soft_moe_router_monotone/seed-42/evaluation.json",
+  "candidate_evaluation": "typhoon/models/soft_moe_vd_warmstart_ppo/seed-42/evaluation.json",
+  "phase10_reference": {
+    "utility": {
+      "count": 0.4018,
+      "balanced": 0.3813,
+      "gt": 0.3669,
+      "risk": 0.4005
+    },
+    "gap_vs_value_density": {
+      "count": -0.0435,
+      "balanced": -0.042,
+      "gt": -0.0475,
+      "risk": -0.0566
+    },
+    "mean_gap_vs_value_density": -0.0474,
+    "diagonal_best": {
+      "count": false,
+      "balanced": false,
+      "gt": true,
+      "risk": true
+    },
+    "diagonal_best_count": 2,
+    "specialization_margin": {
+      "count": 0.001643,
+      "balanced": -0.00614,
+      "gt": 0.004155,
+      "risk": 0.00949
+    },
+    "mean_specialization_margin": 0.002287,
+    "cases_with_preference_action_difference": 56,
+    "paired_base_cases": 60,
+    "safety_violations": 0,
+    "rejected_actions": 0
+  },
+  "candidate": {
+    "utility": {
+      "count": 0.4046,
+      "balanced": 0.3915,
+      "gt": 0.365,
+      "risk": 0.4053
+    },
+    "gap_vs_value_density": {
+      "count": -0.0407,
+      "balanced": -0.0318,
+      "gt": -0.0494,
+      "risk": -0.0518
+    },
+    "mean_gap_vs_value_density": -0.043425,
+    "diagonal_best": {
+      "count": true,
+      "balanced": false,
+      "gt": false,
+      "risk": true
+    },
+    "diagonal_best_count": 2,
+    "specialization_margin": {
+      "count": 0.00222,
+      "balanced": 0.00174,
+      "gt": -0.002934,
+      "risk": 0.006376
+    },
+    "mean_specialization_margin": 0.00185,
+    "cases_with_preference_action_difference": 55,
+    "paired_base_cases": 60,
+    "safety_violations": 0,
+    "rejected_actions": 0
+  },
+  "service_gate": {
+    "accepted_for_service": true,
+    "conditions": {
+      "not_pilot": true,
+      "safety_zero": true,
+      "preference_difference_coverage": true,
+      "preference_difference_not_materially_worse_than_phase10": true,
+      "mean_centroid_utility_improves_phase10": true,
+      "at_least_three_profiles_improve_phase10": true,
+      "no_material_profile_utility_regression": true,
+      "mean_specialization_margin_not_materially_worse": true
+    },
+    "utility_delta_vs_phase10": {
+      "count": 0.0028,
+      "balanced": 0.0102,
+      "gt": -0.0019,
+      "risk": 0.0048
+    },
+    "mean_utility_delta_vs_phase10": 0.003975,
+    "profiles_improved_vs_phase10": 3,
+    "specialization_margin_delta_vs_phase10": -0.000437,
+    "tolerances": {
+      "max_profile_utility_regression": 0.002,
+      "max_difference_case_regression": 2,
+      "max_mean_specialization_margin_regression": 0.001
+    }
+  },
+  "diagonal_is_diagnostic_only": true
+}
