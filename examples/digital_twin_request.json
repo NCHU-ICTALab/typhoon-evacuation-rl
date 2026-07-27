@@ -1,0 +1,53 @@
+{
+  "request_id": "demo-typhoon-2026-001",
+  "observed_at": "2026-08-01T08:00:00+08:00",
+  "closure_at": "2026-08-01T12:00:00+08:00",
+  "resources": {
+    "tug_capacity": 8,
+    "entrance_capacity": {"1": 1, "2": 1}
+  },
+  "vessels": [
+    {"ship_id": "demo-01", "name": "DEMO VESSEL 01", "gross_tonnage": 8200, "entrance": "1", "ready_at": "2026-08-01T08:00:00+08:00", "transit_hours": 0.45, "tugs": 1, "risk_points": 2},
+    {"ship_id": "demo-02", "name": "DEMO VESSEL 02", "gross_tonnage": 14500, "entrance": "2", "ready_at": "2026-08-01T08:05:00+08:00", "transit_hours": 0.55, "tugs": 1, "risk_points": 3},
+    {"ship_id": "demo-03", "name": "DEMO VESSEL 03", "gross_tonnage": 31800, "entrance": "1", "ready_at": "2026-08-01T08:10:00+08:00", "transit_hours": 0.72, "tugs": 2, "risk_points": 4},
+    {"ship_id": "demo-04", "name": "DEMO VESSEL 04", "gross_tonnage": 9700, "entrance": "2", "ready_at": "2026-08-01T08:12:00+08:00", "transit_hours": 0.48, "tugs": 1, "risk_points": 1},
+    {"ship_id": "demo-05", "name": "DEMO VESSEL 05", "gross_tonnage": 52200, "entrance": "1", "ready_at": "2026-08-01T08:18:00+08:00", "transit_hours": 0.95, "tugs": 3, "risk_points": 5},
+    {"ship_id": "demo-06", "name": "DEMO VESSEL 06", "gross_tonnage": 21400, "entrance": "2", "ready_at": "2026-08-01T08:20:00+08:00", "transit_hours": 0.63, "tugs": 2, "risk_points": 2},
+    {"ship_id": "demo-07", "name": "DEMO VESSEL 07", "gross_tonnage": 11600, "entrance": "1", "ready_at": "2026-08-01T08:25:00+08:00", "transit_hours": 0.50, "tugs": 1, "risk_points": 3},
+    {"ship_id": "demo-08", "name": "DEMO VESSEL 08", "gross_tonnage": 44700, "entrance": "2", "ready_at": "2026-08-01T08:30:00+08:00", "transit_hours": 0.88, "tugs": 2, "risk_points": 4},
+    {"ship_id": "demo-09", "name": "DEMO VESSEL 09", "gross_tonnage": 6800, "entrance": "1", "ready_at": "2026-08-01T08:35:00+08:00", "transit_hours": 0.42, "tugs": 1, "risk_points": 1},
+    {"ship_id": "demo-10", "name": "DEMO VESSEL 10", "gross_tonnage": 76000, "entrance": "2", "ready_at": "2026-08-01T08:40:00+08:00", "transit_hours": 1.15, "tugs": 4, "risk_points": 5},
+    {"ship_id": "demo-11", "name": "DEMO VESSEL 11", "gross_tonnage": 18300, "entrance": "1", "ready_at": "2026-08-01T08:45:00+08:00", "transit_hours": 0.58, "tugs": 1, "risk_points": 2},
+    {"ship_id": "demo-12", "name": "DEMO VESSEL 12", "gross_tonnage": 25900, "entrance": "2", "ready_at": "2026-08-01T08:50:00+08:00", "transit_hours": 0.68, "tugs": 2, "risk_points": 3},
+    {"ship_id": "demo-13", "name": "DEMO VESSEL 13", "gross_tonnage": 39200, "entrance": "1", "ready_at": "2026-08-01T08:55:00+08:00", "transit_hours": 0.81, "tugs": 2, "risk_points": 4},
+    {"ship_id": "demo-14", "name": "DEMO VESSEL 14", "gross_tonnage": 10500, "entrance": "2", "ready_at": "2026-08-01T09:00:00+08:00", "transit_hours": 0.49, "tugs": 1, "risk_points": 1},
+    {"ship_id": "demo-15", "name": "DEMO VESSEL 15", "gross_tonnage": 60500, "entrance": "1", "ready_at": "2026-08-01T09:05:00+08:00", "transit_hours": 1.02, "tugs": 3, "risk_points": 5},
+    {"ship_id": "demo-16", "name": "DEMO VESSEL 16", "gross_tonnage": 23100, "entrance": "2", "ready_at": "2026-08-01T09:10:00+08:00", "transit_hours": 0.65, "tugs": 2, "risk_points": 2},
+    {"ship_id": "demo-17", "name": "DEMO VESSEL 17", "gross_tonnage": 12800, "entrance": "1", "ready_at": "2026-08-01T09:15:00+08:00", "transit_hours": 0.52, "tugs": 1, "risk_points": 3},
+    {"ship_id": "demo-18", "name": "DEMO VESSEL 18", "gross_tonnage": 48600, "entrance": "2", "ready_at": "2026-08-01T09:20:00+08:00", "transit_hours": 0.91, "tugs": 3, "risk_points": 4},
+    {"ship_id": "demo-19", "name": "DEMO VESSEL 19", "gross_tonnage": 7400, "entrance": "1", "ready_at": "2026-08-01T09:25:00+08:00", "transit_hours": 0.44, "tugs": 1, "risk_points": 1},
+    {"ship_id": "demo-20", "name": "DEMO VESSEL 20", "gross_tonnage": 83500, "entrance": "2", "ready_at": "2026-08-01T09:30:00+08:00", "transit_hours": 1.20, "tugs": 4, "risk_points": 5},
+    {"ship_id": "demo-21", "name": "DEMO VESSEL 21", "gross_tonnage": 19600, "entrance": "1", "ready_at": "2026-08-01T09:35:00+08:00", "transit_hours": 0.60, "tugs": 1, "risk_points": 2},
+    {"ship_id": "demo-22", "name": "DEMO VESSEL 22", "gross_tonnage": 27800, "entrance": "2", "ready_at": "2026-08-01T09:40:00+08:00", "transit_hours": 0.70, "tugs": 2, "risk_points": 3},
+    {"ship_id": "demo-23", "name": "DEMO VESSEL 23", "gross_tonnage": 41500, "entrance": "1", "ready_at": "2026-08-01T09:45:00+08:00", "transit_hours": 0.84, "tugs": 2, "risk_points": 4},
+    {"ship_id": "demo-24", "name": "DEMO VESSEL 24", "gross_tonnage": 11200, "entrance": "2", "ready_at": "2026-08-01T09:50:00+08:00", "transit_hours": 0.50, "tugs": 1, "risk_points": 1},
+    {"ship_id": "demo-25", "name": "DEMO VESSEL 25", "gross_tonnage": 64800, "entrance": "1", "ready_at": "2026-08-01T09:55:00+08:00", "transit_hours": 1.05, "tugs": 3, "risk_points": 5},
+    {"ship_id": "demo-26", "name": "DEMO VESSEL 26", "gross_tonnage": 24400, "entrance": "2", "ready_at": "2026-08-01T10:00:00+08:00", "transit_hours": 0.66, "tugs": 2, "risk_points": 2},
+    {"ship_id": "demo-27", "name": "DEMO VESSEL 27", "gross_tonnage": 13600, "entrance": "1", "ready_at": "2026-08-01T10:05:00+08:00", "transit_hours": 0.53, "tugs": 1, "risk_points": 3},
+    {"ship_id": "demo-28", "name": "DEMO VESSEL 28", "gross_tonnage": 50100, "entrance": "2", "ready_at": "2026-08-01T10:10:00+08:00", "transit_hours": 0.93, "tugs": 3, "risk_points": 4},
+    {"ship_id": "demo-29", "name": "DEMO VESSEL 29", "gross_tonnage": 7900, "entrance": "1", "ready_at": "2026-08-01T10:15:00+08:00", "transit_hours": 0.45, "tugs": 1, "risk_points": 1},
+    {"ship_id": "demo-30", "name": "DEMO VESSEL 30", "gross_tonnage": 91000, "entrance": "2", "ready_at": "2026-08-01T10:20:00+08:00", "transit_hours": 1.25, "tugs": 4, "risk_points": 5}
+  ],
+  "continuous_preferences": [
+    {
+      "key": "operations-balanced",
+      "label": "營運均衡",
+      "weights": [0.34, 0.33, 0.33]
+    },
+    {
+      "key": "risk-heavy",
+      "label": "風險加重",
+      "weights": [0.15, 0.15, 0.70]
+    }
+  ]
+}

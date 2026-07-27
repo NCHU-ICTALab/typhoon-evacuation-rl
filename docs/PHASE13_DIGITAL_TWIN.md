@@ -65,9 +65,9 @@ GET /api/typhoon/digital-twin/capabilities
 回傳 schema 版本、固定船數、時間範圍、RL candidate 類型、安全 mask 與尚未支援的能力。
 同一份 manifest 也包含在 `/api/typhoon/health`。
 
-`GET /api/typhoon/digital-twin/health` 會另外實際載入最新 Phase 10 checkpoint，檢查 observation
-為 344、action 為 31，並回傳 model family、SHA-256 與 validation record。此端點不依賴歷史 DB 或
-Phase 8 experts，應作為數位孿生整合的 readiness probe。
+`GET /api/typhoon/digital-twin/health` 會實際載入 Phase 14 service candidate，驗證 SHA-256，
+並檢查 observation 為 344、action 為 31。此端點不依賴歷史 DB 或 Phase 8 experts，
+應作為數位孿生整合的 readiness probe。
 
 ### 完整 Pareto 排程
 
@@ -80,7 +80,7 @@ Content-Type: application/json
 
 - `rl_candidates`：所有實際執行的 RL 排程；
 - `pareto_rl`：以撤離艘數、GT、風險點去重後的非支配集合；
-- `candidate_id`／`policy_source`：候選使用的偏好與 Phase 10 checkpoint family；
+- `candidate_id`／`policy_source`：候選使用的偏好與 Phase 14 checkpoint family；
 - `schedule`／`decisions`／`kpi`：完整時程、動作 trace 與預估 KPI；
 - `warnings`／`capability_limits`：分布外輸入與已知限制。
 

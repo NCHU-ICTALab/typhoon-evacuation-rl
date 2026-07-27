@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -50,9 +51,15 @@ COMPARISON_PATH = MODEL_ROOT / "comparison-seed-42.json"
 MODEL_CARD_PATH = ROOT / "model_cards" / "phase8_seed42.json"
 SOFT_MOE_FAMILY = "phase14-vd-warmstart-preference-ppo"
 SOFT_MOE_SHA256 = "885a53e59cddfb173bcd5a8af1c9c75ac06d91ec60073fd9d93fd366a4407fb0"
-SOFT_MOE_PATH = (
-    ROOT / "models" / "soft_moe_vd_warmstart_ppo" / "seed-42"
+DEFAULT_SOFT_MOE_PATH = (
+    ROOT
+    / "models"
+    / "soft_moe_vd_warmstart_ppo"
+    / "seed-42"
     / "service_candidate.pt"
+)
+SOFT_MOE_PATH = Path(
+    os.environ.get("TYPHOON_PHASE14_MODEL_PATH", DEFAULT_SOFT_MOE_PATH)
 )
 SOFT_MOE_COMPARISON_PATH = (
     SOFT_MOE_PATH.parent / "phase10_service_assessment.json"
@@ -67,6 +74,27 @@ PROFILE_LABELS = {
     "gt": "GT 優先",
     "risk": "風險優先",
 }
+
+
+def _cors_origins() -> list[str]:
+    configured = os.environ.get("TYPHOON_CORS_ORIGINS", "*")
+    origins = [item.strip() for item in configured.split(",") if item.strip()]
+    return origins or ["*"]
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _display_model_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
 
 
 class ScheduleRequest(BaseModel):
@@ -147,6 +175,12 @@ def get_soft_moe():
     if not SOFT_MOE_PATH.exists():
         raise FileNotFoundError(
             f"Latest reward-trained Soft MoE checkpoint missing: {SOFT_MOE_PATH}"
+        )
+    actual_sha256 = _sha256(SOFT_MOE_PATH)
+    if actual_sha256 != SOFT_MOE_SHA256:
+        raise ValueError(
+            "Phase 14 checkpoint SHA-256 mismatch: "
+            f"expected {SOFT_MOE_SHA256}, got {actual_sha256}"
         )
     from .soft_moe import SoftMoEActorCritic
 
@@ -538,7 +572,7 @@ def calculate(
                 "family": SOFT_MOE_FAMILY,
                 "display_name": "Phase 14 · VD warm-start preference PPO（PoC）",
                 "routing": "continuous-preference-soft-router",
-                "file": str(SOFT_MOE_PATH.relative_to(ROOT)),
+                "file": _display_model_path(SOFT_MOE_PATH),
                 "rl_transitions": 200_000,
                 "validation": get_soft_moe_validation_record(),
             },
@@ -614,7 +648,7 @@ def calculate_digital_twin(
         "engine": "python-rl-multi-pareto",
         "model": {
             "family": SOFT_MOE_FAMILY,
-            "file": str(SOFT_MOE_PATH.relative_to(ROOT)),
+            "file": _display_model_path(SOFT_MOE_PATH),
             "validation": get_soft_moe_validation_record(),
         },
         "service_goal": "rl_multi_preference_pareto",
@@ -665,7 +699,7 @@ def _next_action_payload(result: dict) -> dict:
 app = FastAPI(title="颱風封港 Python RL 決策服務", version="0.4")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -673,26 +707,26 @@ app.add_middleware(
 
 @app.get("/api/typhoon/health")
 def health():
+    """Default readiness probe for the clone-ready Phase 14 service."""
+
     try:
-        models = get_models()
-        scenario = get_scenario()
+        model = get_soft_moe()
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {
         "status": "ok",
-        "engine": "python-decomposed-ppo-phase8-experts",
-        "model_family": MODEL_FAMILY,
-        "routing": "fixed-profile-hard-selector",
-        "profiles": list(models),
-        "observation_size": int(models["balanced"].observation_space.shape[0]),
-        "actions": int(models["balanced"].action_space.n),
-        "scenario_date": scenario.get("metadata", {}).get("query_date"),
-        "validation": get_validation_record(),
-        "soft_moe": {
-            "available": SOFT_MOE_PATH.exists(),
-            "validation": get_soft_moe_validation_record(),
-        },
+        "engine": "python-rl-multi-pareto",
+        "model_family": SOFT_MOE_FAMILY,
+        "routing": "continuous-preference-soft-router",
+        "model_file": _display_model_path(SOFT_MOE_PATH),
+        "model_sha256": SOFT_MOE_SHA256,
+        "observation_size": int(model.observation_space.shape[0]),
+        "actions": int(model.action_space.n),
+        "validation": get_soft_moe_validation_record(),
         "digital_twin": capability_manifest(),
+        "legacy_schedule_available": bool(
+            DB_PATH.exists() and all(path.exists() for path in MODEL_PATHS.values())
+        ),
     }
 
 
@@ -725,7 +759,7 @@ def digital_twin_health():
         "status": "ok",
         "engine": "python-rl-multi-pareto",
         "model_family": SOFT_MOE_FAMILY,
-        "model_file": str(SOFT_MOE_PATH.relative_to(ROOT)),
+        "model_file": _display_model_path(SOFT_MOE_PATH),
         "model_sha256": SOFT_MOE_SHA256,
         "observation_size": int(model.observation_space.shape[0]),
         "actions": int(model.action_space.n),
@@ -763,7 +797,9 @@ app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 def main() -> None:
     import uvicorn
 
-    uvicorn.run("typhoon.api:app", host="127.0.0.1", port=8765, reload=False)
+    host = os.environ.get("TYPHOON_HOST", "0.0.0.0")
+    port = int(os.environ.get("TYPHOON_PORT", "8765"))
+    uvicorn.run("typhoon.api:app", host=host, port=port, reload=False)
 
 
 if __name__ == "__main__":

@@ -5,11 +5,17 @@ __pycache__/
 .coverage
 htmlcov/
 
+*.egg-info/
 # Local data, trained artifacts, and generated reports
 data/*
 !data/README.md
-models/
-typhoon/models/
+/models/
+typhoon/models/*
+!typhoon/models/soft_moe_vd_warmstart_ppo/
+typhoon/models/soft_moe_vd_warmstart_ppo/*
+!typhoon/models/soft_moe_vd_warmstart_ppo/seed-42/
+typhoon/models/soft_moe_vd_warmstart_ppo/seed-42/*
+!typhoon/models/soft_moe_vd_warmstart_ppo/seed-42/service_candidate.pt
 out/
 typhoon/out/
 

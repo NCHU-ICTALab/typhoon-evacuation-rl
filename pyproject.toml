@@ -32,6 +32,7 @@ typhoon = [
   "frontend/*.css",
   "frontend/*.js",
   "model_cards/*.json",
+  "models/soft_moe_vd_warmstart_ppo/seed-42/service_candidate.pt",
 ]
 
 [tool.pytest.ini_options]
