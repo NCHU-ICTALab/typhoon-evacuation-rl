@@ -68,16 +68,44 @@ action mask 會在 expert 內與混合後各套用一次。
 
 ## 目前結果
 
-目前的 seed-42 router PPO pilot 使用 100,000 個 RL transitions。在 15 個連續偏好 grid 點、
-每點 60 組 held-out cases 上，相較未經 RL 更新的 router 為 4 點改善、9 點持平、2 點小幅退步；
-平均 utility delta 為 `+0.001626`，安全違規與 rejected actions 都是 0。
+### RL vs FCFS
 
-Phase 11 的最佳化 oracle 顯示 Value-density 在目前近可分離的合成環境已距上限約 1–3%，而
-Phase 9B RL 仍落後約 10–13%；Phase 12 的 BC／DAgger 也沒有消除 closed-loop 差距。這些結果
-用來界定 RL 的訓練缺口，**不代表服務策略改成 Value-density**。目前可提供的是有明確限制標示
-的 RL Pareto PoC；正式驗收仍需多 seed、偏好單調性改善與真實 service-time 資料。
+在最後 5 個未參與訓練的日期與 60 組完全配對封港情境中，RL 與 FCFS 使用相同船舶、
+封港時間、拖船容量、需求壓力、jitter seed 與 hard action mask。四種主要偏好的 held-out
+weighted utility 如下：
 
-Phase 13 已開始提供數位孿生 snapshot 契約，並使用最新 Phase 10 reward-trained Soft MoE：固定 30 艘、時區明確的 `observed_at`／
+| 偏好 | RL weighted utility | FCFS | 相對提升 |
+|---|---:|---:|---:|
+| 艘數 | 0.4046 | 0.3990 | +1.40% |
+| 平衡 | 0.3915 | 0.3814 | +2.65% |
+| GT | 0.3650 | 0.3575 | +2.10% |
+| 風險 | 0.4053 | 0.3878 | +4.51% |
+
+為評估連續偏好，另在 count／GT／risk simplex 掃描 15 個間距 `0.25` 的權重，共完成
+900 組 RL／FCFS 配對：
+
+- 15/15 偏好點的平均 utility 均高於 FCFS；
+- 跨偏好平均絕對提升 `+0.009395`，相對提升 `+2.46%`；
+- 逐 episode 勝／平／負為 403／227／270；
+- 同一情境平均產生 5.38 種 RL 排程，FCFS 固定為 1 種；
+- 每個情境平均保留 3.23 個非支配 RL 候選；
+- 25/60 cases 至少有一個 RL 候選 Pareto 支配 FCFS；
+- 相鄰 `0.25` 偏好點有 46.94% 會改變排程；safety violations 與 rejected actions 均為 0。
+
+「連續偏好」表示 API 可接受任意非負三維權重；排程動作仍是離散的，因此不保證船序隨權重
+平滑插值。完整評估方法、原始 KPI、限制與報告措辭見
+[Phase 14 FCFS comparison](docs/PHASE14_FCFS_COMPARISON.md)。
+
+### 研究與服務界線
+
+Phase 11 的最佳化 oracle 顯示 Value-density 在目前近可分離的合成環境已距上限約 1–3%。
+這項結果用來界定研究天花板，**不代表服務策略改成 Value-density**；數位孿生端點只回傳
+RL 產生的多偏好 Pareto 候選。
+
+目前量化結果只有 seed 42，且真實 service time、可變船數、多 seed 與 paired bootstrap CI
+尚未完成，因此應表述為 held-out RL Pareto PoC，不是正式港務生產驗收。
+
+Phase 13 已提供固定 30 艘、時區明確的 stateless snapshot 契約，涵蓋 `observed_at`／
 `closure_at`、船舶整備與 service time、拖船與入口容量。呼叫端可取得完整 RL Pareto 排程，
 或每個 Pareto 候選的下一步動作；VD 不在此端點的候選集合中。
 
@@ -88,9 +116,10 @@ python -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 .venv/bin/pytest -q
 
-# 訓練目前的 frozen-expert continuous router
-OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 .venv/bin/python -m typhoon.train_soft_moe_ppo \
-  --db data/ua1008l.sqlite --seed 42 --steps-per-profile 25000
+# 從 VD-DAgger warm-start 訓練 preference-conditioned PPO
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 .venv/bin/python -m typhoon.train_vd_warmstart_ppo \
+  --db data/ua1008l.sqlite --seed 42 --expert-steps 25000 \
+  --router-steps-per-profile 25000
 
 # 連續偏好配對評估
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 .venv/bin/python -m typhoon.evaluate_soft_moe_grid \

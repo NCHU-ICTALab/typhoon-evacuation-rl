@@ -274,7 +274,7 @@ def capability_manifest() -> dict:
             "discrete": ["count", "balanced", "gt", "risk"],
             "continuous_soft_moe": True,
             "single_checkpoint": True,
-            "checkpoint_family": "phase10-monotonicity-regularized-soft-moe",
+            "checkpoint_family": "phase14-vd-warmstart-preference-ppo",
             "baseline_candidates_included": False,
             "heuristic_fallback": False,
         },
@@ -306,7 +306,7 @@ def capability_manifest() -> dict:
             "active_operations_supported": False,
             "variable_vessel_count_supported": False,
             "current_model_is_experimental": True,
-            "phase10_monotonicity_gate_passed": False,
+            "phase14_relative_poc_gate_passed": True,
             "single_seed_validation": True,
         },
     }

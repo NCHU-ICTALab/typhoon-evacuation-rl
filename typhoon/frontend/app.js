@@ -12,7 +12,7 @@
     risk_aware: { label: "Risk-aware", detail: "安全餘裕優先" },
     value_density: { label: "Value-density", detail: "偏好價值／通航時間" },
     rl: { label: "Phase 8 RL", detail: "偏好 hard-route 至對應 expert" },
-    continuous: { label: "Phase 10 Soft MoE", detail: "Monotonicity-trained router · 連續偏好" }
+    continuous: { label: "Phase 14 Soft MoE", detail: "VD warm-start PPO · 連續偏好" }
   };
   var BASELINE_ORDER = ["fcfs", "risk_aware", "value_density"];
   var PROFILE_ORDER = ["count", "balanced", "gt", "risk"];
@@ -118,7 +118,7 @@
         continuous,
         "自訂連續偏好",
         'data-continuous-card="true"',
-        "Phase 10 實驗",
+        "Phase 14 PoC",
         "RL-trained Soft MoE · 偏好 " + weightText(continuous.preference) +
           " · router C/B/G/R " + routing,
         state.method === "continuous"
@@ -177,7 +177,7 @@
       delta(result.kpi.gt, base.gt, " GT、") +
       delta(result.kpi.risk, base.risk, " 風險點。");
     if (state.method === "continuous") {
-      text += " 此結果來自最新 Phase 10 monotonicity-trained checkpoint；安全與 GT/risk gate 維持，但偏好單調性 gate 未通過，因此仍是單 seed 實驗模型。";
+      text += " 此結果來自 Phase 14 VD warm-start preference-conditioned PPO；相對 Phase 10 的 PoC gate 已通過，但仍只有 seed 42。";
     }
     byId("insightText").textContent = text;
     byId("alertCopy").textContent = text;
@@ -312,7 +312,7 @@
     byId("policyBadge").textContent = label;
     byId("alertTitle").textContent = label + " 已由 Python 完成";
     byId("engineStatus").textContent = state.payload.continuous_result ?
-      "Phase 8 + Phase 10 Soft MoE 已連線" : "Phase 8 RL experts 已連線";
+      "Phase 8 + Phase 14 Soft MoE 已連線" : "Phase 8 RL experts 已連線";
     byId("scenarioSource").textContent = "船舶：公開資料保留日 " + state.payload.scenario.date;
     var usingSoft = state.method === "continuous";
     byId("modelSource").textContent = "模型：" + (usingSoft ?
@@ -321,7 +321,7 @@
         fmt.format(state.payload.model.trained_steps_per_expert) + " steps/expert");
     var validation = usingSoft ? state.payload.model.soft_moe.validation : state.payload.model.validation;
     byId("validationTitle").textContent = usingSoft ?
-      "Phase 10 held-out + monotonicity 紀錄（實驗）" : "Phase 8 held-out 紀錄";
+      "Phase 14 held-out + FCFS 量化紀錄（PoC）" : "Phase 8 held-out 紀錄";
     var validationRecord = byId("validationRecord");
     validationRecord.classList.toggle("unavailable", !validation.available);
     if (validation.available) {

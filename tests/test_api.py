@@ -110,7 +110,7 @@ def test_calculate_runs_one_checkpoint_with_normalized_continuous_preference():
 
     continuous = result["continuous_result"]
     assert soft_model.calls > 0
-    assert result["engine"] == "python-phase8-experts+phase10-soft-moe"
+    assert result["engine"] == "python-phase8-experts+phase14-soft-moe"
     assert result["selected_weights"] == [0.2, 0.3, 0.5]
     assert continuous["preference"]["key"] == "continuous"
     assert continuous["preference"]["weights"] == [0.2, 0.3, 0.5]
@@ -165,7 +165,7 @@ def test_frontend_identifies_phase8_expert_routing():
     assert "Phase 8 Python RL experts" in response.text
     assert "Phase 8 held-out 紀錄" in response.text
     assert "實驗性連續偏好" in response.text
-    assert "Phase 10 Monotonicity-trained Soft MoE" in response.text
+    assert "Phase 14 VD warm-start preference PPO" in response.text
 
 
 def test_validation_record_falls_back_to_tracked_model_card(

@@ -48,13 +48,16 @@ MANIFEST_PATHS = {
 }
 COMPARISON_PATH = MODEL_ROOT / "comparison-seed-42.json"
 MODEL_CARD_PATH = ROOT / "model_cards" / "phase8_seed42.json"
-SOFT_MOE_FAMILY = "phase10-monotonicity-regularized-soft-moe"
-SOFT_MOE_SHA256 = "e6abde454606082b51ef88e5da503a5be4505ec088469ffaf86b30ff6ae0dbf5"
+SOFT_MOE_FAMILY = "phase14-vd-warmstart-preference-ppo"
+SOFT_MOE_SHA256 = "885a53e59cddfb173bcd5a8af1c9c75ac06d91ec60073fd9d93fd366a4407fb0"
 SOFT_MOE_PATH = (
-    ROOT / "models" / "soft_moe_router_monotone" / "seed-42" / "final.pt"
+    ROOT / "models" / "soft_moe_vd_warmstart_ppo" / "seed-42"
+    / "service_candidate.pt"
 )
-SOFT_MOE_COMPARISON_PATH = SOFT_MOE_PATH.parent / "comparison.json"
-SOFT_MOE_CARD_PATH = ROOT / "model_cards" / "phase10_seed42.json"
+SOFT_MOE_COMPARISON_PATH = (
+    SOFT_MOE_PATH.parent / "phase10_service_assessment.json"
+)
+SOFT_MOE_CARD_PATH = ROOT / "model_cards" / "phase14_seed42.json"
 DB_PATH = Path(os.environ.get("TYPHOON_DB_PATH", DEFAULT_DB))
 _MODEL_LOCK = threading.Lock()
 
@@ -208,6 +211,48 @@ def get_soft_moe_validation_record() -> dict:
     if not path.exists():
         return {"available": False}
     report = json.loads(path.read_text(encoding="utf-8"))
+    gate = report.get("service_gate")
+    if isinstance(gate, dict):
+        candidate = report.get("candidate", {})
+        return {
+            "available": True,
+            "seed": 42,
+            "phase": "14_vd_warmstart_preference_ppo",
+            "gate_version": report.get("gate_version"),
+            "accepted_for_service": bool(
+                gate.get("accepted_for_service", False)
+            ),
+            "accepted_for_frontend": bool(
+                gate.get("accepted_for_service", False)
+            ),
+            "conditions": gate.get("conditions", {}),
+            "utility_delta_vs_phase10": gate.get(
+                "utility_delta_vs_phase10", {}
+            ),
+            "mean_utility_delta_vs_phase10": float(
+                gate.get("mean_utility_delta_vs_phase10", 0.0)
+            ),
+            "profiles_improved_vs_phase10": int(
+                gate.get("profiles_improved_vs_phase10", 0)
+            ),
+            "specialization_margin_delta_vs_phase10": float(
+                gate.get("specialization_margin_delta_vs_phase10", 0.0)
+            ),
+            "diagonal_best": candidate.get("diagonal_best", {}),
+            "diagonal_is_diagnostic_only": bool(
+                report.get("diagonal_is_diagnostic_only", True)
+            ),
+            "safety_violations": int(
+                candidate.get("safety_violations", 0)
+            ),
+            "rejected_actions": int(candidate.get("rejected_actions", 0)),
+            "paired_base_cases": int(candidate.get("paired_base_cases", 60)),
+            "limitations": [
+                "single seed 42",
+                "fixed 30-vessel model contract",
+                "synthetic service-time/resource/risk assumptions remain",
+            ],
+        }
     return {
         "available": True,
         "seed": int(report.get("seed", 42)),
@@ -471,7 +516,7 @@ def calculate(
     first_model = models["balanced"]
     return {
         "engine": (
-            "python-phase8-experts+phase10-soft-moe"
+            "python-phase8-experts+phase14-soft-moe"
             if continuous_result is not None
             else "python-decomposed-ppo-phase8-experts"
         ),
@@ -491,10 +536,10 @@ def calculate(
             "soft_moe": {
                 "available": SOFT_MOE_PATH.exists(),
                 "family": SOFT_MOE_FAMILY,
-                "display_name": "Phase 10 · Monotonicity-trained Soft MoE（實驗性）",
+                "display_name": "Phase 14 · VD warm-start preference PPO（PoC）",
                 "routing": "continuous-preference-soft-router",
                 "file": str(SOFT_MOE_PATH.relative_to(ROOT)),
-                "rl_transitions": 100_000,
+                "rl_transitions": 200_000,
                 "validation": get_soft_moe_validation_record(),
             },
         },

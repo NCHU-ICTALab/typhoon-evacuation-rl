@@ -27,7 +27,7 @@
         <p class="eyebrow">TYPHOON EVACUATION CONTROL</p>
         <h1>在封港之前，<br><span>先決定誰該離開。</span></h1>
         <p class="lead">依官方風力門檻鎖定安全截止時間，由 Phase 8 Python RL experts 執行
-          四種偏好排程；也可開啟 Phase 10 Monotonicity-trained Soft MoE 的連續偏好實驗，再與固定規則基線比較。</p>
+          四種偏好排程；也可開啟 Phase 14 VD warm-start preference PPO 的連續偏好實驗，再與固定規則基線比較。</p>
         <div class="source-row">
           <span id="scenarioSource">船舶：載入保留日期中…</span>
           <span>風力／資源：訓練用合成</span>
@@ -80,7 +80,7 @@
         <section class="continuous-panel" id="continuousPanel">
           <label class="continuous-toggle">
             <input id="continuousMode" type="checkbox">
-            <span><b>實驗性連續偏好</b><small>Phase 10 frozen experts + monotonicity-trained router</small></span>
+            <span><b>實驗性連續偏好</b><small>Phase 14 VD-warm-start experts + preference-conditioned PPO router</small></span>
           </label>
           <div class="continuous-weights">
             <label class="control compact">
@@ -175,7 +175,7 @@
             </article>
             <article>
               <strong>這個前端的界線</strong>
-              <p>預設載入四個 Phase 8 <b>final.pt</b> 並 hard-route。開啟「實驗性連續偏好」後，則載入最新 Phase 10 <b>final.pt</b>，由含 monotonicity regularizer 的 soft router 混合四個 frozen experts；瀏覽器不自行產生排程。</p>
+              <p>預設載入四個 Phase 8 <b>final.pt</b> 並 hard-route。開啟「實驗性連續偏好」後，則載入最新 Phase 14 <b>service_candidate.pt</b>，由 preference-conditioned soft router 混合四個 reward-fine-tuned experts；瀏覽器不自行產生排程。</p>
             </article>
           </div>
         </section>
@@ -233,7 +233,7 @@
 
   <footer>
     <p><strong>研究型 PoC</strong>｜結果只用於流程展示與模型訓練，不代表港方正式命令或真實颱風成效。</p>
-    <p>Kaohsiung Smart Port Decision Support · Phase 8 + Experimental Phase 10</p>
+    <p>Kaohsiung Smart Port Decision Support · Phase 8 + Phase 14 Pareto PoC</p>
   </footer>
 
   <script src="app.js"></script>
