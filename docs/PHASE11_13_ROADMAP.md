@@ -1,22 +1,14 @@
 # Phase 11–13 規劃：競爭力、驗收 gate 與服務化
 
-本文件承接 Phase 10（偏好單調性，見 `PHASE10_PREFERENCE_MONOTONICITY.md`），規劃三個尚未
-開始的 phase：(11) 對規則基線的競爭力、(12) 多 seed／細 grid／CI 的正式驗收 gate、
-(13) 服務化與數位孿生整合契約。各 phase 以下方實測 baseline 為量化依據。
+本文件承接 Phase 10（偏好單調性，見 `PHASE10_PREFERENCE_MONOTONICITY.md`）。Phase 11 的
+oracle 與 Phase 12 的 VD 蒸餾診斷已完成；Phase 13 的服務化／數位孿生整合已開始。正式服務
+目標是 **RL 產生的多偏好 Pareto 集**，VD 僅作 teacher／benchmark，不是主策略。
 
 ## 共同實測 baseline（Phase 9B checkpoint, seed-42, held-out）
 
-RL 對規則基線的配對 utility（同 case、同安全限制）：
-
-| 偏好 | RL | FCFS | Risk-aware | Value-density |
-|---|---:|---:|---:|---:|
-| count | 0.4018 | 0.3990 | 0.3722 | **0.4453** |
-| balanced | 0.3813 | 0.3814 | 0.3776 | **0.4184** |
-| gt | **0.3669** | 0.3575 | 0.3851 | 0.3595 |
-| risk | 0.4005 | 0.3878 | 0.3755 | **0.4505** |
-
-value-density 在 count／balanced／risk 明顯領先 RL，RL 只有在 GT 偏好上勝過 value-density
-（但輸給 risk-aware）。cross-utility 對角最佳維持 2/4（gt、risk）。
+Phase 11 以正確的 per-preference VD 口徑重算後，Phase 9B RL 四種偏好均落後 VD 約 10–13%；
+VD 距 oracle 約 1–3%。完整數字以 [PHASE11_COMPETITIVENESS.md](PHASE11_COMPETITIVENESS.md)
+與 `model_cards/phase11_oracle_seed42.json` 為準。這是 RL 的品質基準，不改變 RL-only 服務契約。
 
 ## Phase 11：對規則基線的競爭力
 
@@ -63,23 +55,20 @@ case 以 beam search／ILP／DP 在相同 hard mask 下最大化 scalarized util
   非支配集支配規則集。報告 hypervolume、epsilon indicator 與對 oracle／VD 的 regret。
 - 建議訊息：`feat: add optimization oracle and greedy-competitive training`
 
-## Phase 12：多 seed、細 grid 與 CI（正式驗收 gate）
+## Phase 12：VD 蒸餾診斷（已完成）
 
-把目前的下一步正式化為 deployment 前的硬 gate：
+BC 與 DAgger 已驗證 97–98% per-step 模仿率仍會因 closed-loop covariate shift 落後 VD 約
+9–13%。此 checkpoint 不接受為正式 RL 主模型；VD 保留為 teacher／benchmark。詳見
+[PHASE12_VD_DISTILLATION.md](PHASE12_VD_DISTILLATION.md)。
 
-- 訓練 seed 43、44（建議再加 45、46）；
-- grid 細化到 0.1；
-- 每點加 paired bootstrap 95% CI 與 per-point regret，對照 value-density、對應 specialist 與
-  Phase 11 oracle；
-- experts 維持凍結，直到多 seed 同時通過 Phase 10 單調性 gate、GT/risk 2/2 gate 與非負平均
-  delta 才考慮延長 steps 或 joint fine-tune。
-- 建議訊息：`feat: multi-seed continuous evaluation with bootstrap CI`
+多 seed、0.1 grid、paired bootstrap 95% CI、per-point oracle／VD regret 仍是部署硬 gate，
+但改列為 RL Pareto 模型的跨 phase 驗收工作，不再與 Phase 12 編號衝突。
 
 ## Phase 13：服務化／數位孿生整合契約
 
-回答「若要當成服務（例如數位孿生會用到這個 RL 排程），需要被設定什麼」。目前 API 是一次性
-重播整段 episode，情境靠 `build_scenario.py` 由歷史 DB 合成；服務化需要把「消費端必須提供
-什麼」變成明確、可驗證的契約。
+回答「若數位孿生要使用 RL 多 Pareto 排程，必須提供什麼」。第一版已採 stateless
+receding-horizon snapshot：孿生在 ETA、資源或封港時間更新時重新送入完整快照，服務回傳完整
+RL Pareto 集，或每個 Pareto 候選的下一步動作。
 
 ### 消費端必須提供的設定（提議 `EvacuationScenarioConfig`，Pydantic 型別化）
 
@@ -93,22 +82,25 @@ case 以 beam search／ILP／DP 在相同 hard mask 下最大化 scalarized util
 4. **clock**：絕對時間 `now`；孿生推進時間並在事件發生時要求重排。
 5. **preference**：`(count, GT, risk)` 三維非負權重。
 
-### 需新增的介面與產物
+### 已加入的第一版介面與產物
 
-- **ServiceTimeSource adapter**：過航／靠泊／離泊時間一律經可注入的 provider（鐵律）；文件化
-  孿生需實作的介面，模擬器內不得寫死在泊時間。
-- **capability／limits manifest（機器可讀，擴充 model_cards 並由 `/health` 輸出）**：固定
-  30 艘 obs 契約、合法偏好範圍、哪些欄位是合成 vs 實測、2/4 對角與 GT-risk gate、安全保證
-  （mask 強制、0 違規）、單 seed pilot 的 caveat。讓孿生清楚知道能宣稱與不能宣稱什麼。
-- **stateful stepping API**：現有 API 一次跑完整 episode；孿生需要 `POST /step`（推進到下一
-  事件、依當前 live 狀態回傳下一步 dispatch／wait 建議），並在新 ETA／資源更新時重排。契約
-  須維持 safety mask；模型缺失時維持 503、不做 heuristic fallback（既有 invariant）。
+- `typhoon/digital_twin.py`：Pydantic snapshot schema、可注入 `ServiceTimeSource`、能力限制與
+  scenario adapter。
+- `GET /api/typhoon/digital-twin/capabilities`：固定 30 艘、合法時間／入口／資源範圍與不支援
+  項目的機器可讀宣告。
+- `POST /api/typhoon/digital-twin/pareto`：以同一顆 Phase 10 Soft MoE 跑四個 centroid 加選配
+  continuous preference，回傳全部 RL candidates 與非支配 `pareto_rl`；不執行規則候選。
+- `POST /api/typhoon/digital-twin/step`：從同一 snapshot 投影每個 Pareto 候選的第一個
+  dispatch／wait，供孿生以 receding horizon 執行後重排。
+- 模型缺失時維持 503，不做 heuristic fallback。
 - **可變船數**：折入 `WORKFLOW.md` 末「30 艘容量與部署待辦」的 rolling top-30 window、空 slot
   永久 mask 與 KPI 分母只計真實船舶；此路徑需以不同實際船數重訓與重評，不能直接沿用現有
   checkpoint。
 
-### 驗收
+### 第一版驗收與後續
 
-- config schema 有測試驗證；`ServiceTimeSource` 可替換；capability manifest 由 `/health`
-  輸出；可變船數路徑以自身重訓為 gate；安全 invariant 不變。
-- 建議訊息：`feat: define digital-twin scenario and service contract`
+- schema、`ServiceTimeSource` 替換、RL-only candidate contract、capabilities 與 `/step` 已有測試；
+- active operations 尚未支援，第一版不是 server-side stateful session；
+- 可變船數、active resource release、真實 service time、多 seed gate 完成後，才能升級正式服務；
+- 詳細契約見 [PHASE13_DIGITAL_TWIN.md](PHASE13_DIGITAL_TWIN.md)。
+- 建議訊息：`feat: add RL Pareto digital-twin snapshot API`

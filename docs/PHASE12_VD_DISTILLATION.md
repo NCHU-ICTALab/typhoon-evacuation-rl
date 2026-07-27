@@ -1,9 +1,10 @@
-# Phase 12：VD 蒸餾為可服務 checkpoint（BC / DAgger）與定案
+# Phase 12：VD 蒸餾診斷（BC / DAgger）
 
 ## 目標
 
-打造一個**可服務的單一 checkpoint**：乾淨追平 value-density(VD)、保有連續偏好控制、安全
-gate 與 Pareto 集，且**不覆蓋現有 checkpoint**（現有 Phase 9B 供 Pareto 演示）。
+檢驗是否能把 value-density(VD) 的近最佳行為蒸餾進單一神經 checkpoint，同時保有連續偏好
+控制、安全 gate 與 Pareto 集，且**不覆蓋現有 checkpoint**（現有 Phase 9B 供 Pareto 演示）。
+VD 在此是 teacher／競爭力基準，不是預設服務策略。
 
 ## 方法
 
@@ -31,7 +32,7 @@ utility 仍落後 VD ~10%——這是典型 **behavior-cloning covariate shift**
 緊迫的關鍵派船決策上並沿軌跡放大。DAgger（以 VD 標記學生造訪狀態）只把差距縮小一點點，
 仍差 ~9–13%，且單調性未回到 VD 水準。
 
-## 定案
+## 研究結論與服務目標更正
 
 **在目前近可分離的合成環境，任何神經策略（RL／BC／DAgger）都無法乾淨追平 VD**：
 - reward-driven RL：regret 11–16%（Phase 9B）；
@@ -42,14 +43,21 @@ utility 仍落後 VD ~10%——這是典型 **behavior-cloning covariate shift**
 baseline 計算）、連續偏好（`偏好·objectives/transit` 對任意三維偏好都成立）、安全（只從 action
 mask 選）、Pareto（51/60 distinct）、外加近最佳（距上限 1–3%）與單調（0/60）。
 
-**因此本目標的正解是「直接服務 value-density」**——把 VD 放在偏好／安全／Pareto 契約後面當
-主策略，而不是硬塞一個在每個面向都更差的神經近似。neural 路線（BC-init + PPO fine-tune）只有
-在環境獲得**非短視結構**（真實靠泊／離泊 service time，`ServiceTimeSource`，資料源尚未到位）、
-使貪婪不再近最佳時，才值得重啟；屆時本 phase 的 BC/DAgger pipeline 可當 warm-start 骨架。
+原始實驗曾據此建議直接服務 VD；**專案服務目標現已明確更正為 RL 多偏好／多 Pareto 集**，
+因此不採用該建議。正確解讀是：本 phase 證明目前 BC／DAgger checkpoint 還不能作為正式 RL
+主模型，而不是證明應把規則方法改名成 AI 或混入 RL 候選。
+
+後續做法是：
+
+1. Phase 8／9B 繼續作為有明確限制標示的 RL Pareto PoC；
+2. VD 只用於 offline teacher、regret 基準與訓練課程，不出現在 RL-only 服務候選；
+3. Phase 13 先完成數位孿生契約與 receding-horizon RL 服務；
+4. 以真實 `ServiceTimeSource` 加入非短視結構，再進行 BC warm-start + preference-conditioned
+   PPO／trajectory-level search，重新驗收 utility、單調性、Pareto coverage 與多 seed CI。
 
 ## 交付
 
 - `train_behavior_clone.py`、`train_dagger.py`（VD 蒸餾骨架，供未來非短視環境的 warm-start）；
 - checkpoint 寫入新目錄，未覆蓋任何現有模型；
-- 定案：對「可服務、追平 VD」目標，服務 VD 本身為最佳解；neural checkpoint 延後至 service-time
-  資料到位。
+- 負結果定案：現有 BC／DAgger 不接受為 RL 主模型；VD 保留為 teacher／benchmark。
+- 服務定案：正式候選必須來自 RL policy；規則基線不得混入 `pareto_rl`。

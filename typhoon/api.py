@@ -1,4 +1,4 @@
-"""FastAPI service for Phase 8 experts and experimental Phase 9B Soft MoE."""
+"""FastAPI service for Phase 8 experts and the latest experimental Soft MoE."""
 
 from __future__ import annotations
 
@@ -17,6 +17,15 @@ from pydantic import BaseModel, Field, field_validator
 
 from .baselines import select_action
 from .build_scenario import DEFAULT_DB, build_scenario
+from .digital_twin import (
+    CURRENT_VESSEL_SLOTS,
+    DigitalTwinScenarioRequest,
+    ServiceTimeSource,
+    build_digital_twin_scenario,
+    capability_manifest,
+    digital_twin_options,
+    request_warnings,
+)
 from .env import TyphoonEvacuationEnv
 from .evaluate_rl import PREFERENCE_PROFILES
 
@@ -39,9 +48,13 @@ MANIFEST_PATHS = {
 }
 COMPARISON_PATH = MODEL_ROOT / "comparison-seed-42.json"
 MODEL_CARD_PATH = ROOT / "model_cards" / "phase8_seed42.json"
-SOFT_MOE_PATH = ROOT / "models" / "soft_moe_router_ppo" / "seed-42" / "final.pt"
+SOFT_MOE_FAMILY = "phase10-monotonicity-regularized-soft-moe"
+SOFT_MOE_SHA256 = "e6abde454606082b51ef88e5da503a5be4505ec088469ffaf86b30ff6ae0dbf5"
+SOFT_MOE_PATH = (
+    ROOT / "models" / "soft_moe_router_monotone" / "seed-42" / "final.pt"
+)
 SOFT_MOE_COMPARISON_PATH = SOFT_MOE_PATH.parent / "comparison.json"
-SOFT_MOE_CARD_PATH = ROOT / "model_cards" / "phase9b_seed42.json"
+SOFT_MOE_CARD_PATH = ROOT / "model_cards" / "phase10_seed42.json"
 DB_PATH = Path(os.environ.get("TYPHOON_DB_PATH", DEFAULT_DB))
 _MODEL_LOCK = threading.Lock()
 
@@ -129,13 +142,26 @@ def get_models() -> dict[str, object]:
 @lru_cache(maxsize=1)
 def get_soft_moe():
     if not SOFT_MOE_PATH.exists():
-        raise FileNotFoundError(f"Phase 9B Soft MoE checkpoint missing: {SOFT_MOE_PATH}")
+        raise FileNotFoundError(
+            f"Latest reward-trained Soft MoE checkpoint missing: {SOFT_MOE_PATH}"
+        )
     from .soft_moe import SoftMoEActorCritic
 
     model = SoftMoEActorCritic.load(SOFT_MOE_PATH)
-    probe = TyphoonEvacuationEnv(get_scenario(), randomize=False)
-    _validate_model(model, probe, "continuous")
-    probe.close()
+    expected_observation = (
+        CURRENT_VESSEL_SLOTS * TyphoonEvacuationEnv.VESSEL_FEATURES
+        + TyphoonEvacuationEnv.GLOBAL_FEATURES
+    )
+    expected_actions = CURRENT_VESSEL_SLOTS + 1
+    if (
+        model.observation_space.shape != (expected_observation,)
+        or model.action_space.n != expected_actions
+    ):
+        raise ValueError(
+            "Latest Soft MoE/digital-twin contract mismatch: "
+            f"obs {model.observation_space.shape} vs {(expected_observation,)}, "
+            f"actions {model.action_space.n} vs {expected_actions}"
+        )
     return model
 
 
@@ -175,9 +201,9 @@ def get_validation_record() -> dict:
 @lru_cache(maxsize=1)
 def get_soft_moe_validation_record() -> dict:
     path = (
-        SOFT_MOE_COMPARISON_PATH
-        if SOFT_MOE_COMPARISON_PATH.exists()
-        else SOFT_MOE_CARD_PATH
+        SOFT_MOE_CARD_PATH
+        if SOFT_MOE_CARD_PATH.exists()
+        else SOFT_MOE_COMPARISON_PATH
     )
     if not path.exists():
         return {"available": False}
@@ -198,6 +224,9 @@ def get_soft_moe_validation_record() -> dict:
             "routing_after", report.get("centroid_routing", {})
         ),
         "continuous_grid": report.get("continuous_grid", {}),
+        "monotonicity": report.get("monotonicity", {}),
+        "result": report.get("result"),
+        "limitations": report.get("limitations", []),
     }
 
 
@@ -419,7 +448,7 @@ def calculate(
         if req.preference_weights is not None:
             if soft_model is None:
                 raise ValueError(
-                    "Phase 9B Soft MoE model is required for continuous preference"
+                    "Latest Soft MoE model is required for continuous preference"
                 )
             continuous_result = _run_policy(
                 scenario=scenario,
@@ -442,7 +471,7 @@ def calculate(
     first_model = models["balanced"]
     return {
         "engine": (
-            "python-phase8-experts+phase9b-soft-moe"
+            "python-phase8-experts+phase10-soft-moe"
             if continuous_result is not None
             else "python-decomposed-ppo-phase8-experts"
         ),
@@ -461,8 +490,8 @@ def calculate(
             "validation": get_validation_record(),
             "soft_moe": {
                 "available": SOFT_MOE_PATH.exists(),
-                "family": "phase9b-frozen-expert-router-ppo",
-                "display_name": "Phase 9B · RL-trained Soft MoE（實驗性）",
+                "family": SOFT_MOE_FAMILY,
+                "display_name": "Phase 10 · Monotonicity-trained Soft MoE（實驗性）",
                 "routing": "continuous-preference-soft-router",
                 "file": str(SOFT_MOE_PATH.relative_to(ROOT)),
                 "rl_transitions": 100_000,
@@ -486,7 +515,109 @@ def calculate(
     }
 
 
-app = FastAPI(title="颱風封港 Python RL 決策服務", version="0.3")
+def calculate_digital_twin(
+    req: DigitalTwinScenarioRequest,
+    *,
+    model,
+    service_time_source: ServiceTimeSource | None = None,
+) -> dict:
+    """Run one preference-conditioned RL checkpoint over all Pareto weights."""
+
+    scenario = build_digital_twin_scenario(
+        req, service_time_source=service_time_source
+    )
+    candidates = []
+    with _MODEL_LOCK:
+        for key, weights in PREFERENCE_PROFILES.items():
+            candidate = _run_policy(
+                scenario=scenario,
+                options=digital_twin_options(req, weights),
+                policy="rl",
+                preference_key=key,
+                model=model,
+            )
+            candidate.update(
+                {
+                    "candidate_id": f"soft-moe:{key}",
+                    "policy_source": SOFT_MOE_FAMILY,
+                }
+            )
+            candidates.append(candidate)
+
+        for preference in req.continuous_preferences:
+            weights = preference.normalized_weights()
+            candidate = _run_policy(
+                scenario=scenario,
+                options=digital_twin_options(req, weights),
+                policy="rl",
+                preference_key=preference.key,
+                model=model,
+            )
+            candidate["preference"]["label"] = preference.label or preference.key
+            candidate.update(
+                {
+                    "candidate_id": f"soft-moe:{preference.key}",
+                    "policy_source": SOFT_MOE_FAMILY,
+                }
+            )
+            candidates.append(candidate)
+
+    pareto = _pareto(candidates)
+    return {
+        "contract_version": "phase13.snapshot.v1",
+        "request_id": req.request_id,
+        "engine": "python-rl-multi-pareto",
+        "model": {
+            "family": SOFT_MOE_FAMILY,
+            "file": str(SOFT_MOE_PATH.relative_to(ROOT)),
+            "validation": get_soft_moe_validation_record(),
+        },
+        "service_goal": "rl_multi_preference_pareto",
+        "scenario": {
+            "observed_at": req.observed_at.isoformat(),
+            "closure_at": req.closure_at.isoformat(),
+            "closure_hours": round(req.closure_hours, 6),
+            "vessel_count": len(req.vessels),
+            "service_time_source": scenario["metadata"]["service_time_source"],
+        },
+        "candidate_count": len(candidates),
+        "pareto_count": len(pareto),
+        "rl_candidates": candidates,
+        "pareto_rl": pareto,
+        "warnings": request_warnings(req),
+        "capability_limits": capability_manifest()["limitations"],
+    }
+
+
+def _next_action_payload(result: dict) -> dict:
+    """Project a full Pareto schedule response to receding-horizon actions."""
+
+    next_actions = []
+    for candidate in result["pareto_rl"]:
+        decision = candidate["decisions"][0] if candidate["decisions"] else None
+        next_actions.append(
+            {
+                "candidate_id": candidate["candidate_id"],
+                "policy_source": candidate["policy_source"],
+                "preference": candidate["preference"],
+                "next_decision": decision,
+                "projected_kpi": candidate["kpi"],
+            }
+        )
+    return {
+        "contract_version": result["contract_version"],
+        "request_id": result["request_id"],
+        "engine": result["engine"],
+        "service_goal": result["service_goal"],
+        "scenario": result["scenario"],
+        "pareto_count": result["pareto_count"],
+        "next_actions": next_actions,
+        "warnings": result["warnings"],
+        "capability_limits": result["capability_limits"],
+    }
+
+
+app = FastAPI(title="颱風封港 Python RL 決策服務", version="0.4")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -516,6 +647,7 @@ def health():
             "available": SOFT_MOE_PATH.exists(),
             "validation": get_soft_moe_validation_record(),
         },
+        "digital_twin": capability_manifest(),
     }
 
 
@@ -529,6 +661,53 @@ def schedule(req: ScheduleRequest):
             soft_model=soft_model,
             scenario=get_scenario(),
         )
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/typhoon/digital-twin/capabilities")
+def digital_twin_capabilities():
+    return capability_manifest()
+
+
+@app.get("/api/typhoon/digital-twin/health")
+def digital_twin_health():
+    try:
+        model = get_soft_moe()
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {
+        "status": "ok",
+        "engine": "python-rl-multi-pareto",
+        "model_family": SOFT_MOE_FAMILY,
+        "model_file": str(SOFT_MOE_PATH.relative_to(ROOT)),
+        "model_sha256": SOFT_MOE_SHA256,
+        "observation_size": int(model.observation_space.shape[0]),
+        "actions": int(model.action_space.n),
+        "validation": get_soft_moe_validation_record(),
+        "capabilities": capability_manifest(),
+    }
+
+
+@app.post("/api/typhoon/digital-twin/pareto")
+def digital_twin_pareto(req: DigitalTwinScenarioRequest):
+    try:
+        return calculate_digital_twin(
+            req,
+            model=get_soft_moe(),
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/typhoon/digital-twin/step")
+def digital_twin_step(req: DigitalTwinScenarioRequest):
+    try:
+        result = calculate_digital_twin(
+            req,
+            model=get_soft_moe(),
+        )
+        return _next_action_payload(result)
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
