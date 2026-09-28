@@ -11,6 +11,65 @@
 選擇，而不是把 Value-density 規則直接當成正式主策略。Value-density、FCFS 與 Risk-aware
 保留為離線評估基準；數位孿生的 RL 端點不會把規則候選混入 RL Pareto 集。
 
+## 隊友直接啟動 Phase 14 後端
+
+這條路徑只做數位孿生推論，**不需要歷史 SQLite，也不需要重新訓練**。Phase 14
+`service_candidate.pt`（約 7.2 MB）已隨 repo 追蹤，服務啟動時會驗證 SHA-256：
+
+`885a53e59cddfb173bcd5a8af1c9c75ac06d91ec60073fd9d93fd366a4407fb0`
+
+需要 Python 3.11 以上版本；第一次安裝相依套件時需要網路。
+
+~~~bash
+git clone https://github.com/NCHU-ICTALab/typhoon-evacuation-rl.git
+cd typhoon-evacuation-rl
+./scripts/run_demo_backend.sh
+~~~
+
+第一次執行會建立 `.venv` 並安裝相依套件，之後服務位於 `http://127.0.0.1:8765`。
+另開終端機可用 repo 內的 30 艘假船 snapshot 驗證完整推論：
+
+~~~bash
+.venv/bin/python scripts/smoke_phase14.py
+~~~
+
+成功時會顯示 `Phase 14 smoke test passed`。也可以開啟：
+
+- readiness：`GET http://127.0.0.1:8765/api/typhoon/health`
+- OpenAPI：`GET http://127.0.0.1:8765/docs`
+- 完整 Pareto 排程：`POST /api/typhoon/digital-twin/pareto`
+- 每個 Pareto 候選的下一步：`POST /api/typhoon/digital-twin/step`
+
+### 前端要傳入什麼
+
+前端每次送出一份完整、無狀態的港區 snapshot：
+
+| 欄位 | 內容 |
+|---|---|
+| `request_id` | 此次決策的唯一識別碼 |
+| `observed_at`、`closure_at` | 含時區的觀測時間與停止出港時間，目前支援剩餘 2–12 小時 |
+| `resources` | 可用拖船總數，以及入口 1、2 的容量 |
+| `vessels` | 固定 30 艘；每艘含 ID、GT、入口、整備時間、service time、拖船需求與風險點 |
+| `continuous_preferences` | 選填；每組為 `[count, GT, risk]` 三維非負權重 |
+
+可直接使用 [examples/digital_twin_request.json](examples/digital_twin_request.json) 作為前端假資料。
+例如：
+
+~~~bash
+curl -X POST http://127.0.0.1:8765/api/typhoon/digital-twin/step \
+  -H 'Content-Type: application/json' \
+  --data @examples/digital_twin_request.json
+~~~
+
+`step` 回傳每個非支配偏好候選的 `next_decision`：可能是派指定船舶出港，或等待下一個整備／
+資源事件；`projected_kpi` 則是該候選完整排程的預估艘數、GT、風險點與安全 KPI。數位孿生
+可依 `start_hour`／`finish_hour` 播放船舶由泊位沿航道移至港外，再以更新後 snapshot
+重新呼叫，形成 receding-horizon 排程。
+
+完整 request／response 與 JavaScript 呼叫範例見
+[前端整合指南](docs/FRONTEND_INTEGRATION.md)。目前端點要求前端先補齊所有欄位；
+`observed／estimated` 缺值解析仍是後續 `/digital-twin/resolve` 的工作。
+
 ## 應用情境
 
 一般交通量下，固定規則通常已能完成大部分排程；RL 的價值主要出現在封港倒數、資源不足、
@@ -109,7 +168,9 @@ Phase 13 已提供固定 30 艘、時區明確的 stateless snapshot 契約，�
 `closure_at`、船舶整備與 service time、拖船與入口容量。呼叫端可取得完整 RL Pareto 排程，
 或每個 Pareto 候選的下一步動作；VD 不在此端點的候選集合中。
 
-## 快速開始
+## 研究用訓練與評估
+
+以下流程需要未納入 Git 的歷史 SQLite；只啟動 Phase 14 推論服務不需要執行。
 
 ~~~bash
 python -m venv .venv
@@ -124,19 +185,10 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 .venv/bin/python -m typhoon.train_vd_warmsta
 # 連續偏好配對評估
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 .venv/bin/python -m typhoon.evaluate_soft_moe_grid \
   --db data/ua1008l.sqlite --step 0.25 --seed 42
-
-# 啟動 Python API 與前端
-OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 TYPHOON_DB_PATH=/path/to/ua1008l.sqlite \
-  .venv/bin/python -m typhoon.api
 ~~~
 
-啟動後開啟 `http://127.0.0.1:8765`。前端預設使用四個離散 expert 的穩定路徑；開啟
-「實驗性連續偏好」後，才會使用 PPO-trained Soft MoE router。
-
-數位孿生能力宣告位於 `GET /api/typhoon/digital-twin/capabilities`；RL-only 完整 Pareto
-排程與 receding-horizon 下一步建議分別使用 `POST /api/typhoon/digital-twin/pareto` 與
-`POST /api/typhoon/digital-twin/step`。契約與目前不支援的狀態見
-[docs/PHASE13_DIGITAL_TWIN.md](docs/PHASE13_DIGITAL_TWIN.md)。
+舊的 `/api/typhoon/schedule` 研究頁仍需要 Phase 8 checkpoints 與 SQLite，不是隊友整合
+Phase 14 時應呼叫的端點。
 
 ## 專案內容
 
@@ -145,7 +197,9 @@ typhoon/       環境、RL、數位孿生契約、規則基線、API 與前端
 tests/         action mask、PPO、router、API 與資料契約測試
 docs/          實驗規約、結果與研究歷程
 data/          本機唯讀資料說明；資料本身不進 Git
-models/        本機 checkpoint 與評估輸出；不進 Git
+examples/      可直接 POST 的 30 艘假船數位孿生 snapshot
+scripts/       一鍵啟動與 Phase 14 smoke test
+typhoon/models/ 只追蹤 Phase 14 service candidate；其他研究權重不進 Git
 ~~~
 
 目前比較口徑與限制見
